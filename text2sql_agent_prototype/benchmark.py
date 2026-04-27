@@ -315,7 +315,7 @@ def normalize_join(join: ForeignKey) -> str:
 
 
 def canonical_rows(rows: list[dict[str, object]]) -> list[str]:
-    return sorted(json.dumps(row, sort_keys=True) for row in rows)
+    return sorted(json.dumps(list(row.values()), sort_keys=True) for row in rows)
 
 
 def normalize_sql(sql: str | None) -> str:

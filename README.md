@@ -56,6 +56,30 @@ python -m text2sql_agent_prototype.prototype "Show open support tickets by custo
 python -m text2sql_agent_prototype.prototype "Show available stock by warehouse and product category"
 ```
 
+Run with the LLM-backed generator:
+
+```powershell
+$env:OPENAI_API_KEY="YOUR_KEY_HERE"
+python -m text2sql_agent_prototype.prototype --llm "Show revenue by customer"
+```
+
+You can choose the model with:
+
+```powershell
+$env:OPENAI_MODEL="gpt-4.1-mini"
+```
+
+If `--llm` is used without `OPENAI_API_KEY`, the code falls back to the
+deterministic local generator and records that in the trace rationale.
+
+Run the benchmark with the LLM generator:
+
+```powershell
+$env:OPENAI_API_KEY="YOUR_KEY_HERE"
+$env:USE_LLM_AGENT="1"
+python -m text2sql_agent_prototype.large_schema_benchmark
+```
+
 ## Poster Tests
 
 Run poster-focused tests:
@@ -78,6 +102,33 @@ Ran 4 tests
 OK
 ```
 
+Run a block-by-block flow demo that prints how representative queries move
+through every architecture block, including graph join policies and rewritten
+SQL:
+
+```powershell
+python scripts/run_flow_demo.py
+```
+
+Run the poster tests and then print the same flow/metrics demo in one command:
+
+```powershell
+python scripts/run_tests_and_flow.py
+```
+
+The flow demo prints:
+
+- query
+- retrieval scores and candidate tables
+- graph resolution and minimal connecting subgraph
+- graph join policy rules
+- generated SQL
+- DFC rewriter notes and rewritten SQL
+- execution preview
+- validation result
+- final SQL
+- metrics table
+
 ## Benchmarks
 
 Run the mini schema-linking benchmark:
@@ -95,10 +146,10 @@ python -m text2sql_agent_prototype.large_schema_benchmark
 This generates a synthetic Spider/BIRD-style schema with:
 
 ```text
-122 tables
-126 foreign keys
+108 tables
+176 foreign keys
 22 core tables
-100 distractor tables
+86 meaningful extension tables
 24 local evaluation questions
 ```
 
@@ -110,8 +161,8 @@ Method                Join Acc.  Exec. Acc.  EM     VES   Cases     AvgJ  MaxJ  
 Spider original best         -          -   12.4      -  10,181 Q     -     -  200 DBs     -
 BIRD GPT-4 + EK              -       54.9      -      -  12,751 Q     -     -  95 DBs     -
 BIRD human                   -       93.0      -      -         -     -     -  95 DBs     -
-Ours                      68.8       50.0   29.2    0.6        24   2.0     3     122   126
-Agent-based               39.3       50.0   12.5    0.4        24   2.0     3     122   126
+Ours                      70.2       58.3   29.2    0.5        24   2.0     3     108   176
+Agent-based               35.5       29.2    4.2    0.2        24   2.0     3     108   176
 ```
 
 The local rows compare `Ours` against `Agent-based`; reference rows include
@@ -122,6 +173,7 @@ Metric meanings:
 
 - `Join Acc.`: average join F1 over expected foreign-key chains.
 - `Exec. Acc.`: execution result match against gold SQL, similar to Spider/BIRD EX.
+  The evaluator compares returned row values and ignores harmless output-alias differences.
 - `EM`: exact SQL string match approximation.
 - `VES`: BIRD-style valid efficiency score approximation.
 - `Cases`: number of local evaluation questions or published benchmark size.
@@ -175,22 +227,24 @@ The large benchmark currently evaluates 24 local questions across:
 - open support tickets by customer segment
 
 The same question family is repeated with large-schema wording to stress
-retrieval against 100 distractor tables.
+retrieval against 86 meaningful extension tables and 176 foreign-key
+relationships.
 
 ## Interpreting The Current Result
 
 The deterministic agent improves structural correctness:
 
 ```text
-Join Acc.: 68.8 vs 39.3
-EM:        29.2 vs 12.5
-VES:        0.6 vs 0.4
+Join Acc.: 70.2 vs 35.5
+Exec. Acc.: 58.3 vs 29.2
+EM:         29.2 vs 4.2
+VES:        0.5 vs 0.2
 ```
 
-Execution accuracy is tied at `50.0` on the expanded 24-question large-schema
-set. This is useful for the poster: deterministic graph resolution improves
-join structure, but final execution still depends on retrieval finding the
-right core tables in a noisy 122-table schema.
+The current local deterministic run uses a 108-table, 176-foreign-key schema.
+The deterministic graph path improves both structural join quality and
+execution-result match by pruning off-intent extension tables while still using
+the graph to add required bridge tables.
 
 ## Block-by-Block Implementation
 
@@ -307,6 +361,30 @@ This is the reactive layer from the abstract. It treats generated SQL as an
 intermediate program and repairs invalid join predicates using graph-approved
 join conditions.
 
+The current implementation first routes SQL through the data-flow-control
+project rewriter at:
+
+```text
+C:\Users\MK\Desktop\data-flow-control\sql_rewriter
+```
+
+That adapter calls the DFC `SQLRewriter.transform_query(...)` path for SQL
+parsing/transformation. Then graph-approved joins are materialized as
+adapter-level policy rules:
+
+```text
+Graph join policy SOURCES orders, customers
+CONSTRAINT orders.customer_id = customers.id
+ON FAIL REWRITE
+```
+
+Those policies drive the AST join repair step. Trace notes show this as:
+
+```text
+Transformed with data-flow-control SQLRewriter.
+Graph join policy SOURCES orders, customers CONSTRAINT orders.customer_id = customers.id ON FAIL REWRITE
+```
+
 Example:
 
 ```sql
@@ -321,8 +399,12 @@ SELECT * FROM orders
 JOIN customers ON orders.customer_id = customers.id
 ```
 
-In production, use a real SQL AST parser such as `sqlglot` instead of the
-prototype regex matcher.
+Join repair is now AST-based with `sqlglot`, not regex-based.
+
+Note: the current DFC `DFCPolicy` class validates aggregate data-flow
+constraints and rejects raw row-level FK equality constraints. For that reason,
+FK joins are represented as graph join policies in this prototype, while the DFC
+rewriter still provides the SQL transformation layer.
 
 ### 8. SQL Execution
 
@@ -387,6 +469,8 @@ text2sql_agent_prototype/prototype.py                main pipeline
 text2sql_agent_prototype/benchmark.py                mini benchmark
 text2sql_agent_prototype/large_schema_benchmark.py   100+ table benchmark
 tests/test_poster_benchmark.py                       poster-focused tests
+scripts/run_flow_demo.py                             block-by-block trace demo
+scripts/run_tests_and_flow.py                        tests plus trace demo
 README.md                                            runbook and architecture notes
 ```
 
@@ -394,7 +478,7 @@ README.md                                            runbook and architecture no
 
 1. Replace sample schema with live database introspection.
 2. Replace token-vector retrieval with real embeddings.
-3. Replace regex SQL rewrite/validation with SQL AST parsing.
+3. Add broader SQL AST rewrite coverage for nested queries and set operations.
 4. Add trace persistence for every pipeline stage.
 5. Add adapters for BIRD/Spider-style schema and question files.
 

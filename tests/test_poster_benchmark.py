@@ -24,6 +24,10 @@ class PosterBenchmarkTests(unittest.TestCase):
 
         self.assertTrue(rewritten.changed)
         self.assertIn("orders.customer_id = customers.id", rewritten.sql)
+        self.assertTrue(
+            any("Graph join policy" in note for note in rewritten.notes),
+            rewritten.notes,
+        )
 
     def test_large_schema_fixture_has_100_plus_tables(self):
         schema = build_large_schema()
@@ -31,7 +35,11 @@ class PosterBenchmarkTests(unittest.TestCase):
         self.assertGreaterEqual(len(schema.tables), 100)
         self.assertGreaterEqual(len(schema.foreign_keys), 100)
         self.assertIn("orders", schema.tables)
-        self.assertIn("customer_profile_01", schema.tables)
+        self.assertIn("purchase_orders", schema.tables)
+        self.assertIn("shipment_events", schema.tables)
+        self.assertIn("opportunities", schema.tables)
+        self.assertIn("quota_attainment", schema.tables)
+        self.assertNotIn("customer_profile_01", schema.tables)
 
     def test_large_schema_benchmark_improves_join_and_execution_accuracy(self):
         results = run_large_benchmark()

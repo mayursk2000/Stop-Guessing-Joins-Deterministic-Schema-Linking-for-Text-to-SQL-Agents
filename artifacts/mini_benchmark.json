@@ -1,0 +1,1223 @@
+﻿{
+  "summary_by_method": {
+    "deterministic_agent": {
+      "cases": 13,
+      "passed": 13,
+      "avg_retrieval_recall": 0.962,
+      "avg_join_recall": 1.0,
+      "avg_join_precision": 1.0,
+      "avg_join_f1": 1.0,
+      "exact_match": 0.385,
+      "execution_accuracy": 1.0,
+      "result_match_accuracy": 1.0,
+      "ves_like": 0.96,
+      "validation_accuracy": 1.0
+    },
+    "raw_graph_baseline": {
+      "cases": 13,
+      "passed": 9,
+      "avg_retrieval_recall": 0.962,
+      "avg_join_recall": 1.0,
+      "avg_join_precision": 0.687,
+      "avg_join_f1": 0.753,
+      "exact_match": 0.154,
+      "execution_accuracy": 1.0,
+      "result_match_accuracy": 0.692,
+      "ves_like": 0.683,
+      "validation_accuracy": 1.0
+    }
+  },
+  "summary_by_hardness": {
+    "easy": {
+      "cases": 4,
+      "passed": 3,
+      "avg_retrieval_recall": 1.0,
+      "avg_join_recall": 1.0,
+      "avg_join_precision": 0.55,
+      "avg_join_f1": 0.583,
+      "exact_match": 0.5,
+      "execution_accuracy": 1.0,
+      "result_match_accuracy": 0.75,
+      "ves_like": 0.48,
+      "validation_accuracy": 1.0
+    },
+    "extra": {
+      "cases": 4,
+      "passed": 3,
+      "avg_retrieval_recall": 0.875,
+      "avg_join_recall": 1.0,
+      "avg_join_precision": 0.938,
+      "avg_join_f1": 0.964,
+      "exact_match": 0.0,
+      "execution_accuracy": 1.0,
+      "result_match_accuracy": 0.75,
+      "ves_like": 0.927,
+      "validation_accuracy": 1.0
+    },
+    "hard": {
+      "cases": 10,
+      "passed": 9,
+      "avg_retrieval_recall": 0.95,
+      "avg_join_recall": 1.0,
+      "avg_join_precision": 0.975,
+      "avg_join_f1": 0.986,
+      "exact_match": 0.2,
+      "execution_accuracy": 1.0,
+      "result_match_accuracy": 0.9,
+      "ves_like": 0.992,
+      "validation_accuracy": 1.0
+    },
+    "medium": {
+      "cases": 8,
+      "passed": 7,
+      "avg_retrieval_recall": 1.0,
+      "avg_join_recall": 1.0,
+      "avg_join_precision": 0.779,
+      "avg_join_f1": 0.842,
+      "exact_match": 0.375,
+      "execution_accuracy": 1.0,
+      "result_match_accuracy": 0.875,
+      "ves_like": 0.727,
+      "validation_accuracy": 1.0
+    }
+  },
+  "results": [
+    {
+      "method": "raw_graph_baseline",
+      "id": "revenue_by_customer",
+      "db_id": "sales_ops_complex",
+      "query": "Show revenue by customer",
+      "candidate_tables": [
+        "orders",
+        "subscriptions",
+        "customers",
+        "customer_segments",
+        "segment_members",
+        "support_tickets"
+      ],
+      "plan_tables": [
+        "orders",
+        "subscriptions",
+        "customers",
+        "customer_segments",
+        "segment_members",
+        "support_tickets"
+      ],
+      "plan_joins": [
+        "customer_segments.id = segment_members.segment_id",
+        "customers.id = orders.customer_id",
+        "customers.id = segment_members.customer_id",
+        "customers.id = subscriptions.customer_id",
+        "customers.id = support_tickets.customer_id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [
+        "customer_segments",
+        "segment_members",
+        "subscriptions",
+        "support_tickets"
+      ],
+      "missing_joins": [],
+      "extra_plan_joins": [
+        "customer_segments.id = segment_members.segment_id",
+        "customers.id = segment_members.customer_id",
+        "customers.id = subscriptions.customer_id",
+        "customers.id = support_tickets.customer_id"
+      ],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 0.2,
+      "join_f1": 0.333,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.228,
+      "gold_ms": 0.127,
+      "ves": 0.746,
+      "validation_ok": true,
+      "hardness": "easy",
+      "gold_sql": "SELECT customers.name, SUM(orders.amount) AS revenue FROM orders JOIN customers ON orders.customer_id = customers.id GROUP BY customers.name",
+      "final_sql": "SELECT customers.name, SUM(orders.amount) AS revenue FROM orders JOIN customers ON orders.customer_id = customers.id JOIN subscriptions ON customers.id = subscriptions.customer_id JOIN segment_members ON customers.id = segment_members.customer_id JOIN customer_segments ON segment_members.segment_id = customer_segments.id JOIN support_tickets ON customers.id = support_tickets.customer_id GROUP BY customers.name",
+      "passed": true
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "revenue_by_region",
+      "db_id": "sales_ops_complex",
+      "query": "Show revenue by region",
+      "candidate_tables": [
+        "regions",
+        "customers",
+        "orders",
+        "warehouses",
+        "subscriptions"
+      ],
+      "plan_tables": [
+        "regions",
+        "customers",
+        "orders",
+        "warehouses",
+        "subscriptions"
+      ],
+      "plan_joins": [
+        "customers.id = orders.customer_id",
+        "customers.id = subscriptions.customer_id",
+        "customers.region_id = regions.id",
+        "regions.id = warehouses.region_id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [
+        "subscriptions",
+        "warehouses"
+      ],
+      "missing_joins": [],
+      "extra_plan_joins": [
+        "customers.id = subscriptions.customer_id",
+        "regions.id = warehouses.region_id"
+      ],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 0.5,
+      "join_f1": 0.667,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.146,
+      "gold_ms": 0.111,
+      "ves": 0.873,
+      "validation_ok": true,
+      "hardness": "medium",
+      "gold_sql": "SELECT regions.name, SUM(orders.amount) AS revenue FROM orders JOIN customers ON orders.customer_id = customers.id JOIN regions ON customers.region_id = regions.id GROUP BY regions.name",
+      "final_sql": "SELECT regions.name, SUM(orders.amount) AS revenue FROM regions JOIN customers ON regions.id = customers.region_id JOIN orders ON customers.id = orders.customer_id JOIN warehouses ON regions.id = warehouses.region_id JOIN subscriptions ON customers.id = subscriptions.customer_id GROUP BY regions.name",
+      "passed": true
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "revenue_by_product_category",
+      "db_id": "sales_ops_complex",
+      "query": "Show revenue by product category",
+      "candidate_tables": [
+        "products",
+        "subscriptions",
+        "inventory",
+        "order_items",
+        "orders",
+        "invoice_lines"
+      ],
+      "plan_tables": [
+        "products",
+        "subscriptions",
+        "inventory",
+        "order_items",
+        "orders",
+        "invoice_lines"
+      ],
+      "plan_joins": [
+        "inventory.product_id = products.id",
+        "invoice_lines.product_id = products.id",
+        "order_items.order_id = orders.id",
+        "order_items.product_id = products.id",
+        "products.id = subscriptions.product_id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [
+        "inventory",
+        "invoice_lines",
+        "subscriptions"
+      ],
+      "missing_joins": [],
+      "extra_plan_joins": [
+        "inventory.product_id = products.id",
+        "invoice_lines.product_id = products.id",
+        "products.id = subscriptions.product_id"
+      ],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 0.4,
+      "join_f1": 0.571,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": false,
+      "pred_ms": 0.184,
+      "gold_ms": 0.17,
+      "ves": 0.0,
+      "validation_ok": true,
+      "hardness": "medium",
+      "gold_sql": "SELECT products.category, SUM(order_items.quantity * order_items.unit_price) AS revenue FROM orders JOIN order_items ON order_items.order_id = orders.id JOIN products ON order_items.product_id = products.id GROUP BY products.category",
+      "final_sql": "SELECT products.category, SUM(order_items.quantity * order_items.unit_price) AS revenue FROM products JOIN subscriptions ON products.id = subscriptions.product_id JOIN inventory ON products.id = inventory.product_id JOIN order_items ON products.id = order_items.product_id JOIN orders ON order_items.order_id = orders.id JOIN invoice_lines ON products.id = invoice_lines.product_id GROUP BY products.category",
+      "passed": false
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "revenue_by_supplier_country",
+      "db_id": "sales_ops_complex",
+      "query": "Show revenue by supplier country",
+      "candidate_tables": [
+        "suppliers",
+        "products",
+        "orders",
+        "subscriptions"
+      ],
+      "plan_tables": [
+        "suppliers",
+        "products",
+        "orders",
+        "subscriptions",
+        "order_items"
+      ],
+      "plan_joins": [
+        "order_items.order_id = orders.id",
+        "order_items.product_id = products.id",
+        "products.id = subscriptions.product_id",
+        "products.supplier_id = suppliers.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [
+        "subscriptions"
+      ],
+      "missing_joins": [],
+      "extra_plan_joins": [
+        "products.id = subscriptions.product_id"
+      ],
+      "retrieval_recall": 0.75,
+      "join_recall": 1.0,
+      "join_precision": 0.75,
+      "join_f1": 0.857,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": false,
+      "pred_ms": 0.128,
+      "gold_ms": 0.122,
+      "ves": 0.0,
+      "validation_ok": true,
+      "hardness": "hard",
+      "gold_sql": "SELECT suppliers.country, SUM(order_items.quantity * order_items.unit_price) AS revenue FROM orders JOIN order_items ON order_items.order_id = orders.id JOIN products ON order_items.product_id = products.id JOIN suppliers ON products.supplier_id = suppliers.id GROUP BY suppliers.country",
+      "final_sql": "SELECT suppliers.country, SUM(order_items.quantity * order_items.unit_price) AS revenue FROM suppliers JOIN products ON suppliers.id = products.supplier_id JOIN order_items ON products.id = order_items.product_id JOIN orders ON order_items.order_id = orders.id JOIN subscriptions ON products.id = subscriptions.product_id GROUP BY suppliers.country",
+      "passed": false
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "late_shipments_by_warehouse_region",
+      "db_id": "sales_ops_complex",
+      "query": "Show late shipments by warehouse region",
+      "candidate_tables": [
+        "shipments",
+        "warehouses",
+        "regions"
+      ],
+      "plan_tables": [
+        "shipments",
+        "warehouses",
+        "regions"
+      ],
+      "plan_joins": [
+        "regions.id = warehouses.region_id",
+        "shipments.warehouse_id = warehouses.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": true,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.07,
+      "gold_ms": 0.009,
+      "ves": 0.352,
+      "validation_ok": true,
+      "hardness": "medium",
+      "gold_sql": "SELECT warehouses.name, regions.name, COUNT(shipments.id) AS shipments FROM shipments JOIN warehouses ON shipments.warehouse_id = warehouses.id JOIN regions ON warehouses.region_id = regions.id WHERE shipments.status = 'late' GROUP BY warehouses.name, regions.name",
+      "final_sql": "SELECT warehouses.name, regions.name, COUNT(shipments.id) AS shipments FROM shipments JOIN warehouses ON shipments.warehouse_id = warehouses.id JOIN regions ON warehouses.region_id = regions.id WHERE shipments.status = 'late' GROUP BY warehouses.name, regions.name",
+      "passed": true
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "revenue_by_sales_rep",
+      "db_id": "sales_ops_complex",
+      "query": "Show revenue by sales rep",
+      "candidate_tables": [
+        "orders",
+        "employees",
+        "customers",
+        "regions"
+      ],
+      "plan_tables": [
+        "orders",
+        "employees",
+        "customers",
+        "regions"
+      ],
+      "plan_joins": [
+        "customers.id = orders.customer_id",
+        "customers.region_id = regions.id",
+        "employees.id = orders.sales_rep_id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [
+        "customers",
+        "regions"
+      ],
+      "missing_joins": [],
+      "extra_plan_joins": [
+        "customers.id = orders.customer_id",
+        "customers.region_id = regions.id"
+      ],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 0.333,
+      "join_f1": 0.5,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.064,
+      "gold_ms": 0.1,
+      "ves": 1.248,
+      "validation_ok": true,
+      "hardness": "medium",
+      "gold_sql": "SELECT employees.name, SUM(orders.amount) AS revenue FROM orders JOIN employees ON orders.sales_rep_id = employees.id GROUP BY employees.name",
+      "final_sql": "SELECT employees.name, SUM(orders.amount) AS revenue FROM orders JOIN employees ON orders.sales_rep_id = employees.id JOIN customers ON orders.customer_id = customers.id JOIN regions ON customers.region_id = regions.id GROUP BY employees.name",
+      "passed": true
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "paid_amount_by_method",
+      "db_id": "sales_ops_complex",
+      "query": "Show paid amount by payment method",
+      "candidate_tables": [
+        "payments",
+        "orders",
+        "invoice_lines"
+      ],
+      "plan_tables": [
+        "payments",
+        "orders",
+        "invoice_lines",
+        "invoices"
+      ],
+      "plan_joins": [
+        "invoice_lines.invoice_id = invoices.id",
+        "invoices.order_id = orders.id",
+        "orders.id = payments.order_id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [
+        "invoice_lines",
+        "invoices",
+        "orders"
+      ],
+      "missing_joins": [],
+      "extra_plan_joins": [
+        "invoice_lines.invoice_id = invoices.id",
+        "invoices.order_id = orders.id",
+        "orders.id = payments.order_id"
+      ],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 0.0,
+      "join_f1": 0.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": false,
+      "pred_ms": 0.153,
+      "gold_ms": 0.086,
+      "ves": 0.0,
+      "validation_ok": true,
+      "hardness": "easy",
+      "gold_sql": "SELECT payments.method, SUM(payments.amount) AS paid_amount FROM payments GROUP BY payments.method",
+      "final_sql": "SELECT payments.method, SUM(payments.amount) AS paid_amount FROM payments JOIN orders ON payments.order_id = orders.id JOIN invoices ON orders.id = invoices.order_id JOIN invoice_lines ON invoices.id = invoice_lines.invoice_id GROUP BY payments.method",
+      "passed": false
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "returned_units_by_supplier",
+      "db_id": "sales_ops_complex",
+      "query": "Show returned units by supplier",
+      "candidate_tables": [
+        "returns",
+        "order_items",
+        "suppliers",
+        "products"
+      ],
+      "plan_tables": [
+        "returns",
+        "order_items",
+        "suppliers",
+        "products"
+      ],
+      "plan_joins": [
+        "order_items.id = returns.order_item_id",
+        "order_items.product_id = products.id",
+        "products.supplier_id = suppliers.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": true,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.066,
+      "gold_ms": 0.01,
+      "ves": 0.388,
+      "validation_ok": true,
+      "hardness": "hard",
+      "gold_sql": "SELECT suppliers.name, SUM(returns.quantity) AS returned_units FROM returns JOIN order_items ON returns.order_item_id = order_items.id JOIN products ON order_items.product_id = products.id JOIN suppliers ON products.supplier_id = suppliers.id GROUP BY suppliers.name",
+      "final_sql": "SELECT suppliers.name, SUM(returns.quantity) AS returned_units FROM returns JOIN order_items ON returns.order_item_id = order_items.id JOIN products ON order_items.product_id = products.id JOIN suppliers ON products.supplier_id = suppliers.id GROUP BY suppliers.name",
+      "passed": true
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "stock_by_warehouse_and_category",
+      "db_id": "sales_ops_complex",
+      "query": "Show available stock by warehouse and product category",
+      "candidate_tables": [
+        "inventory",
+        "products",
+        "warehouses"
+      ],
+      "plan_tables": [
+        "inventory",
+        "products",
+        "warehouses"
+      ],
+      "plan_joins": [
+        "inventory.product_id = products.id",
+        "inventory.warehouse_id = warehouses.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.079,
+      "gold_ms": 0.126,
+      "ves": 1.268,
+      "validation_ok": true,
+      "hardness": "hard",
+      "gold_sql": "SELECT warehouses.name, products.category, SUM(inventory.quantity_on_hand) AS stock FROM inventory JOIN warehouses ON inventory.warehouse_id = warehouses.id JOIN products ON inventory.product_id = products.id GROUP BY warehouses.name, products.category",
+      "final_sql": "SELECT warehouses.name, products.category, SUM(inventory.quantity_on_hand) AS stock FROM inventory JOIN products ON inventory.product_id = products.id JOIN warehouses ON inventory.warehouse_id = warehouses.id GROUP BY warehouses.name, products.category",
+      "passed": true
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "campaign_revenue_by_channel",
+      "db_id": "sales_ops_complex",
+      "query": "Show campaign revenue by marketing channel",
+      "candidate_tables": [
+        "campaigns",
+        "order_campaigns",
+        "orders"
+      ],
+      "plan_tables": [
+        "campaigns",
+        "order_campaigns",
+        "orders"
+      ],
+      "plan_joins": [
+        "campaigns.id = order_campaigns.campaign_id",
+        "order_campaigns.order_id = orders.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.07,
+      "gold_ms": 0.118,
+      "ves": 1.301,
+      "validation_ok": true,
+      "hardness": "extra",
+      "gold_sql": "SELECT campaigns.channel, SUM(orders.amount) AS revenue FROM orders JOIN order_campaigns ON order_campaigns.order_id = orders.id JOIN campaigns ON order_campaigns.campaign_id = campaigns.id GROUP BY campaigns.channel",
+      "final_sql": "SELECT campaigns.channel, SUM(orders.amount) AS revenue FROM campaigns JOIN order_campaigns ON campaigns.id = order_campaigns.campaign_id JOIN orders ON order_campaigns.order_id = orders.id GROUP BY campaigns.channel",
+      "passed": true
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "open_invoice_amount_by_category",
+      "db_id": "sales_ops_complex",
+      "query": "Show open billed amount by product category",
+      "candidate_tables": [
+        "products",
+        "invoice_lines",
+        "invoices"
+      ],
+      "plan_tables": [
+        "products",
+        "invoice_lines",
+        "invoices"
+      ],
+      "plan_joins": [
+        "invoice_lines.invoice_id = invoices.id",
+        "invoice_lines.product_id = products.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.068,
+      "gold_ms": 0.131,
+      "ves": 1.384,
+      "validation_ok": true,
+      "hardness": "hard",
+      "gold_sql": "SELECT products.category, SUM(invoice_lines.amount) AS billed_amount FROM invoices JOIN invoice_lines ON invoice_lines.invoice_id = invoices.id JOIN products ON invoice_lines.product_id = products.id WHERE invoices.status = 'open' GROUP BY products.category",
+      "final_sql": "SELECT products.category, SUM(invoice_lines.amount) AS billed_amount FROM products JOIN invoice_lines ON products.id = invoice_lines.product_id JOIN invoices ON invoice_lines.invoice_id = invoices.id WHERE invoices.status = 'open' GROUP BY products.category",
+      "passed": true
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "active_mrr_by_customer_region",
+      "db_id": "sales_ops_complex",
+      "query": "Show active subscription MRR by customer region",
+      "candidate_tables": [
+        "customers",
+        "subscriptions",
+        "regions"
+      ],
+      "plan_tables": [
+        "customers",
+        "subscriptions",
+        "regions"
+      ],
+      "plan_joins": [
+        "customers.id = subscriptions.customer_id",
+        "customers.region_id = regions.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.077,
+      "gold_ms": 0.135,
+      "ves": 1.322,
+      "validation_ok": true,
+      "hardness": "hard",
+      "gold_sql": "SELECT regions.name, SUM(subscriptions.monthly_amount) AS mrr FROM subscriptions JOIN customers ON subscriptions.customer_id = customers.id JOIN regions ON customers.region_id = regions.id WHERE subscriptions.status = 'active' GROUP BY regions.name",
+      "final_sql": "SELECT regions.name, SUM(subscriptions.monthly_amount) AS mrr FROM customers JOIN subscriptions ON customers.id = subscriptions.customer_id JOIN regions ON customers.region_id = regions.id WHERE subscriptions.status = 'active' GROUP BY regions.name",
+      "passed": true
+    },
+    {
+      "method": "raw_graph_baseline",
+      "id": "open_tickets_by_segment",
+      "db_id": "sales_ops_complex",
+      "query": "Show open support tickets by customer segment",
+      "candidate_tables": [
+        "support_tickets",
+        "ticket_events",
+        "customer_segments",
+        "segment_members"
+      ],
+      "plan_tables": [
+        "support_tickets",
+        "ticket_events",
+        "customer_segments",
+        "segment_members",
+        "customers"
+      ],
+      "plan_joins": [
+        "customer_segments.id = segment_members.segment_id",
+        "customers.id = segment_members.customer_id",
+        "customers.id = support_tickets.customer_id",
+        "support_tickets.id = ticket_events.ticket_id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [
+        "ticket_events"
+      ],
+      "missing_joins": [],
+      "extra_plan_joins": [
+        "support_tickets.id = ticket_events.ticket_id"
+      ],
+      "retrieval_recall": 0.75,
+      "join_recall": 1.0,
+      "join_precision": 0.75,
+      "join_f1": 0.857,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": false,
+      "pred_ms": 0.132,
+      "gold_ms": 0.154,
+      "ves": 0.0,
+      "validation_ok": true,
+      "hardness": "extra",
+      "gold_sql": "SELECT customer_segments.name, COUNT(support_tickets.id) AS tickets FROM support_tickets JOIN customers ON support_tickets.customer_id = customers.id JOIN segment_members ON segment_members.customer_id = customers.id JOIN customer_segments ON segment_members.segment_id = customer_segments.id WHERE support_tickets.status = 'open' GROUP BY customer_segments.name",
+      "final_sql": "SELECT customer_segments.name, COUNT(support_tickets.id) AS tickets FROM support_tickets JOIN ticket_events ON support_tickets.id = ticket_events.ticket_id JOIN customers ON support_tickets.customer_id = customers.id JOIN segment_members ON customers.id = segment_members.customer_id JOIN customer_segments ON segment_members.segment_id = customer_segments.id WHERE support_tickets.status = 'open' GROUP BY customer_segments.name",
+      "passed": false
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "revenue_by_customer",
+      "db_id": "sales_ops_complex",
+      "query": "Show revenue by customer",
+      "candidate_tables": [
+        "orders",
+        "subscriptions",
+        "customers",
+        "customer_segments",
+        "segment_members",
+        "support_tickets"
+      ],
+      "plan_tables": [
+        "orders",
+        "customers"
+      ],
+      "plan_joins": [
+        "customers.id = orders.customer_id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": true,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.065,
+      "gold_ms": 0.01,
+      "ves": 0.387,
+      "validation_ok": true,
+      "hardness": "easy",
+      "gold_sql": "SELECT customers.name, SUM(orders.amount) AS revenue FROM orders JOIN customers ON orders.customer_id = customers.id GROUP BY customers.name",
+      "final_sql": "SELECT customers.name, SUM(orders.amount) AS revenue FROM orders JOIN customers ON orders.customer_id = customers.id GROUP BY customers.name",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "revenue_by_region",
+      "db_id": "sales_ops_complex",
+      "query": "Show revenue by region",
+      "candidate_tables": [
+        "regions",
+        "customers",
+        "orders",
+        "warehouses",
+        "subscriptions"
+      ],
+      "plan_tables": [
+        "regions",
+        "customers",
+        "orders"
+      ],
+      "plan_joins": [
+        "customers.id = orders.customer_id",
+        "customers.region_id = regions.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.065,
+      "gold_ms": 0.122,
+      "ves": 1.364,
+      "validation_ok": true,
+      "hardness": "medium",
+      "gold_sql": "SELECT regions.name, SUM(orders.amount) AS revenue FROM orders JOIN customers ON orders.customer_id = customers.id JOIN regions ON customers.region_id = regions.id GROUP BY regions.name",
+      "final_sql": "SELECT regions.name, SUM(orders.amount) AS revenue FROM regions JOIN customers ON regions.id = customers.region_id JOIN orders ON customers.id = orders.customer_id GROUP BY regions.name",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "revenue_by_product_category",
+      "db_id": "sales_ops_complex",
+      "query": "Show revenue by product category",
+      "candidate_tables": [
+        "products",
+        "subscriptions",
+        "inventory",
+        "order_items",
+        "orders",
+        "invoice_lines"
+      ],
+      "plan_tables": [
+        "products",
+        "order_items",
+        "orders"
+      ],
+      "plan_joins": [
+        "order_items.order_id = orders.id",
+        "order_items.product_id = products.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.077,
+      "gold_ms": 0.122,
+      "ves": 1.255,
+      "validation_ok": true,
+      "hardness": "medium",
+      "gold_sql": "SELECT products.category, SUM(order_items.quantity * order_items.unit_price) AS revenue FROM orders JOIN order_items ON order_items.order_id = orders.id JOIN products ON order_items.product_id = products.id GROUP BY products.category",
+      "final_sql": "SELECT products.category, SUM(order_items.quantity * order_items.unit_price) AS revenue FROM products JOIN order_items ON products.id = order_items.product_id JOIN orders ON order_items.order_id = orders.id GROUP BY products.category",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "revenue_by_supplier_country",
+      "db_id": "sales_ops_complex",
+      "query": "Show revenue by supplier country",
+      "candidate_tables": [
+        "suppliers",
+        "products",
+        "orders",
+        "subscriptions"
+      ],
+      "plan_tables": [
+        "suppliers",
+        "products",
+        "orders",
+        "order_items"
+      ],
+      "plan_joins": [
+        "order_items.order_id = orders.id",
+        "order_items.product_id = products.id",
+        "products.supplier_id = suppliers.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 0.75,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.07,
+      "gold_ms": 0.12,
+      "ves": 1.307,
+      "validation_ok": true,
+      "hardness": "hard",
+      "gold_sql": "SELECT suppliers.country, SUM(order_items.quantity * order_items.unit_price) AS revenue FROM orders JOIN order_items ON order_items.order_id = orders.id JOIN products ON order_items.product_id = products.id JOIN suppliers ON products.supplier_id = suppliers.id GROUP BY suppliers.country",
+      "final_sql": "SELECT suppliers.country, SUM(order_items.quantity * order_items.unit_price) AS revenue FROM suppliers JOIN products ON suppliers.id = products.supplier_id JOIN order_items ON products.id = order_items.product_id JOIN orders ON order_items.order_id = orders.id GROUP BY suppliers.country",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "late_shipments_by_warehouse_region",
+      "db_id": "sales_ops_complex",
+      "query": "Show late shipments by warehouse region",
+      "candidate_tables": [
+        "shipments",
+        "warehouses",
+        "regions"
+      ],
+      "plan_tables": [
+        "shipments",
+        "warehouses",
+        "regions"
+      ],
+      "plan_joins": [
+        "regions.id = warehouses.region_id",
+        "shipments.warehouse_id = warehouses.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": true,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.063,
+      "gold_ms": 0.008,
+      "ves": 0.356,
+      "validation_ok": true,
+      "hardness": "medium",
+      "gold_sql": "SELECT warehouses.name, regions.name, COUNT(shipments.id) AS shipments FROM shipments JOIN warehouses ON shipments.warehouse_id = warehouses.id JOIN regions ON warehouses.region_id = regions.id WHERE shipments.status = 'late' GROUP BY warehouses.name, regions.name",
+      "final_sql": "SELECT warehouses.name, regions.name, COUNT(shipments.id) AS shipments FROM shipments JOIN warehouses ON shipments.warehouse_id = warehouses.id JOIN regions ON warehouses.region_id = regions.id WHERE shipments.status = 'late' GROUP BY warehouses.name, regions.name",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "revenue_by_sales_rep",
+      "db_id": "sales_ops_complex",
+      "query": "Show revenue by sales rep",
+      "candidate_tables": [
+        "orders",
+        "employees",
+        "customers",
+        "regions"
+      ],
+      "plan_tables": [
+        "orders",
+        "employees"
+      ],
+      "plan_joins": [
+        "employees.id = orders.sales_rep_id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": true,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.061,
+      "gold_ms": 0.008,
+      "ves": 0.366,
+      "validation_ok": true,
+      "hardness": "medium",
+      "gold_sql": "SELECT employees.name, SUM(orders.amount) AS revenue FROM orders JOIN employees ON orders.sales_rep_id = employees.id GROUP BY employees.name",
+      "final_sql": "SELECT employees.name, SUM(orders.amount) AS revenue FROM orders JOIN employees ON orders.sales_rep_id = employees.id GROUP BY employees.name",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "paid_amount_by_method",
+      "db_id": "sales_ops_complex",
+      "query": "Show paid amount by payment method",
+      "candidate_tables": [
+        "payments",
+        "orders",
+        "invoice_lines"
+      ],
+      "plan_tables": [
+        "payments"
+      ],
+      "plan_joins": [],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": true,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.009,
+      "gold_ms": 0.005,
+      "ves": 0.786,
+      "validation_ok": true,
+      "hardness": "easy",
+      "gold_sql": "SELECT payments.method, SUM(payments.amount) AS paid_amount FROM payments GROUP BY payments.method",
+      "final_sql": "SELECT payments.method, SUM(payments.amount) AS paid_amount FROM payments GROUP BY payments.method",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "returned_units_by_supplier",
+      "db_id": "sales_ops_complex",
+      "query": "Show returned units by supplier",
+      "candidate_tables": [
+        "returns",
+        "order_items",
+        "suppliers",
+        "products"
+      ],
+      "plan_tables": [
+        "returns",
+        "order_items",
+        "suppliers",
+        "products"
+      ],
+      "plan_joins": [
+        "order_items.id = returns.order_item_id",
+        "order_items.product_id = products.id",
+        "products.supplier_id = suppliers.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": true,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.07,
+      "gold_ms": 0.01,
+      "ves": 0.377,
+      "validation_ok": true,
+      "hardness": "hard",
+      "gold_sql": "SELECT suppliers.name, SUM(returns.quantity) AS returned_units FROM returns JOIN order_items ON returns.order_item_id = order_items.id JOIN products ON order_items.product_id = products.id JOIN suppliers ON products.supplier_id = suppliers.id GROUP BY suppliers.name",
+      "final_sql": "SELECT suppliers.name, SUM(returns.quantity) AS returned_units FROM returns JOIN order_items ON returns.order_item_id = order_items.id JOIN products ON order_items.product_id = products.id JOIN suppliers ON products.supplier_id = suppliers.id GROUP BY suppliers.name",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "stock_by_warehouse_and_category",
+      "db_id": "sales_ops_complex",
+      "query": "Show available stock by warehouse and product category",
+      "candidate_tables": [
+        "inventory",
+        "products",
+        "warehouses"
+      ],
+      "plan_tables": [
+        "inventory",
+        "products",
+        "warehouses"
+      ],
+      "plan_joins": [
+        "inventory.product_id = products.id",
+        "inventory.warehouse_id = warehouses.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.088,
+      "gold_ms": 0.138,
+      "ves": 1.254,
+      "validation_ok": true,
+      "hardness": "hard",
+      "gold_sql": "SELECT warehouses.name, products.category, SUM(inventory.quantity_on_hand) AS stock FROM inventory JOIN warehouses ON inventory.warehouse_id = warehouses.id JOIN products ON inventory.product_id = products.id GROUP BY warehouses.name, products.category",
+      "final_sql": "SELECT warehouses.name, products.category, SUM(inventory.quantity_on_hand) AS stock FROM inventory JOIN products ON inventory.product_id = products.id JOIN warehouses ON inventory.warehouse_id = warehouses.id GROUP BY warehouses.name, products.category",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "campaign_revenue_by_channel",
+      "db_id": "sales_ops_complex",
+      "query": "Show campaign revenue by marketing channel",
+      "candidate_tables": [
+        "campaigns",
+        "order_campaigns",
+        "orders"
+      ],
+      "plan_tables": [
+        "campaigns",
+        "order_campaigns",
+        "orders"
+      ],
+      "plan_joins": [
+        "campaigns.id = order_campaigns.campaign_id",
+        "order_campaigns.order_id = orders.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.071,
+      "gold_ms": 0.135,
+      "ves": 1.382,
+      "validation_ok": true,
+      "hardness": "extra",
+      "gold_sql": "SELECT campaigns.channel, SUM(orders.amount) AS revenue FROM orders JOIN order_campaigns ON order_campaigns.order_id = orders.id JOIN campaigns ON order_campaigns.campaign_id = campaigns.id GROUP BY campaigns.channel",
+      "final_sql": "SELECT campaigns.channel, SUM(orders.amount) AS revenue FROM campaigns JOIN order_campaigns ON campaigns.id = order_campaigns.campaign_id JOIN orders ON order_campaigns.order_id = orders.id GROUP BY campaigns.channel",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "open_invoice_amount_by_category",
+      "db_id": "sales_ops_complex",
+      "query": "Show open billed amount by product category",
+      "candidate_tables": [
+        "products",
+        "invoice_lines",
+        "invoices"
+      ],
+      "plan_tables": [
+        "products",
+        "invoice_lines",
+        "invoices"
+      ],
+      "plan_joins": [
+        "invoice_lines.invoice_id = invoices.id",
+        "invoice_lines.product_id = products.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.068,
+      "gold_ms": 0.118,
+      "ves": 1.311,
+      "validation_ok": true,
+      "hardness": "hard",
+      "gold_sql": "SELECT products.category, SUM(invoice_lines.amount) AS billed_amount FROM invoices JOIN invoice_lines ON invoice_lines.invoice_id = invoices.id JOIN products ON invoice_lines.product_id = products.id WHERE invoices.status = 'open' GROUP BY products.category",
+      "final_sql": "SELECT products.category, SUM(invoice_lines.amount) AS billed_amount FROM products JOIN invoice_lines ON products.id = invoice_lines.product_id JOIN invoices ON invoice_lines.invoice_id = invoices.id WHERE invoices.status = 'open' GROUP BY products.category",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "active_mrr_by_customer_region",
+      "db_id": "sales_ops_complex",
+      "query": "Show active subscription MRR by customer region",
+      "candidate_tables": [
+        "customers",
+        "subscriptions",
+        "regions"
+      ],
+      "plan_tables": [
+        "customers",
+        "subscriptions",
+        "regions"
+      ],
+      "plan_joins": [
+        "customers.id = subscriptions.customer_id",
+        "customers.region_id = regions.id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 1.0,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.069,
+      "gold_ms": 0.118,
+      "ves": 1.31,
+      "validation_ok": true,
+      "hardness": "hard",
+      "gold_sql": "SELECT regions.name, SUM(subscriptions.monthly_amount) AS mrr FROM subscriptions JOIN customers ON subscriptions.customer_id = customers.id JOIN regions ON customers.region_id = regions.id WHERE subscriptions.status = 'active' GROUP BY regions.name",
+      "final_sql": "SELECT regions.name, SUM(subscriptions.monthly_amount) AS mrr FROM customers JOIN subscriptions ON customers.id = subscriptions.customer_id JOIN regions ON customers.region_id = regions.id WHERE subscriptions.status = 'active' GROUP BY regions.name",
+      "passed": true
+    },
+    {
+      "method": "deterministic_agent",
+      "id": "open_tickets_by_segment",
+      "db_id": "sales_ops_complex",
+      "query": "Show open support tickets by customer segment",
+      "candidate_tables": [
+        "support_tickets",
+        "ticket_events",
+        "customer_segments",
+        "segment_members"
+      ],
+      "plan_tables": [
+        "support_tickets",
+        "customer_segments",
+        "segment_members",
+        "customers"
+      ],
+      "plan_joins": [
+        "customer_segments.id = segment_members.segment_id",
+        "customers.id = segment_members.customer_id",
+        "customers.id = support_tickets.customer_id"
+      ],
+      "missing_tables": [],
+      "extra_plan_tables": [],
+      "missing_joins": [],
+      "extra_plan_joins": [],
+      "retrieval_recall": 0.75,
+      "join_recall": 1.0,
+      "join_precision": 1.0,
+      "join_f1": 1.0,
+      "exact_match": false,
+      "execution_ok": true,
+      "gold_execution_ok": true,
+      "result_match": true,
+      "pred_ms": 0.138,
+      "gold_ms": 0.145,
+      "ves": 1.026,
+      "validation_ok": true,
+      "hardness": "extra",
+      "gold_sql": "SELECT customer_segments.name, COUNT(support_tickets.id) AS tickets FROM support_tickets JOIN customers ON support_tickets.customer_id = customers.id JOIN segment_members ON segment_members.customer_id = customers.id JOIN customer_segments ON segment_members.segment_id = customer_segments.id WHERE support_tickets.status = 'open' GROUP BY customer_segments.name",
+      "final_sql": "SELECT customer_segments.name, COUNT(support_tickets.id) AS tickets FROM support_tickets JOIN customers ON support_tickets.customer_id = customers.id JOIN segment_members ON customers.id = segment_members.customer_id JOIN customer_segments ON segment_members.segment_id = customer_segments.id WHERE support_tickets.status = 'open' GROUP BY customer_segments.name",
+      "passed": true
+    }
+  ]
+}

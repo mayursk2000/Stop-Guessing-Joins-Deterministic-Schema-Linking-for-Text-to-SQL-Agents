@@ -1,0 +1,15 @@
+﻿{
+  "step": "poster_tests",
+  "status": "passed",
+  "tests_run": 4,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "duration_seconds": 7.308,
+  "checks": [
+    "graph join policy rewrites invalid SQL joins",
+    "large schema fixture has 100+ tables and relationships",
+    "benchmark table improves join and execution accuracy",
+    "comparison table contains Spider and BIRD references"
+  ]
+}

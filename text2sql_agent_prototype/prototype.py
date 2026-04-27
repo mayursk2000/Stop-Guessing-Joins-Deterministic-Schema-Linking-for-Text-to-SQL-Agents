@@ -15,11 +15,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sqlite3
+import sys
 from collections import Counter, defaultdict, deque
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Iterable
+
+import sqlglot
+from sqlglot import exp
 
 
 STOPWORDS = {
@@ -173,6 +179,20 @@ class RewriteResult:
     sql: str
     changed: bool
     notes: list[str]
+
+
+@dataclass(frozen=True)
+class GraphJoinPolicy:
+    sources: tuple[str, str]
+    constraint: str
+    on_fail: str = "REWRITE"
+
+    @classmethod
+    def from_foreign_key(cls, foreign_key: ForeignKey) -> "GraphJoinPolicy":
+        return cls(
+            sources=(foreign_key.left_table, foreign_key.right_table),
+            constraint=foreign_key.join_condition(),
+        )
 
 
 @dataclass
@@ -555,49 +575,229 @@ class SQLGenerator:
         return sql
 
 
+class OpenAILLMGenerator(SQLGenerator):
+    """LLM-backed SQL generator with deterministic generator fallback."""
+
+    def __init__(
+        self,
+        model: str | None = None,
+        fallback: SQLGenerator | None = None,
+    ) -> None:
+        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+        self.fallback = fallback or SQLGenerator()
+
+    def generate(self, query: str, join_plan: JoinPlan, schema: Schema) -> GeneratedSQL:
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            fallback = self.fallback.generate(query, join_plan, schema)
+            return GeneratedSQL(
+                sql=fallback.sql,
+                rationale=(
+                    "OpenAI API key not set; used deterministic fallback generator."
+                ),
+            )
+
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=api_key)
+            prompt = self._build_prompt(query, join_plan, schema)
+            response = client.responses.create(
+                model=self.model,
+                input=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a Text-to-SQL agent. Return only SQL. "
+                            "Use only the allowed tables and allowed joins."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0,
+            )
+            sql = self._extract_response_text(response)
+            sql = self._strip_code_fence(sql)
+            if not sql.lower().lstrip().startswith("select"):
+                raise ValueError(f"LLM did not return a SELECT query: {sql[:80]}")
+            return GeneratedSQL(
+                sql=sql,
+                rationale=f"OpenAI LLM SQL generation via {self.model}.",
+            )
+        except Exception as exc:
+            fallback = self.fallback.generate(query, join_plan, schema)
+            return GeneratedSQL(
+                sql=fallback.sql,
+                rationale=f"LLM generation failed ({exc}); used deterministic fallback.",
+            )
+
+    def _build_prompt(self, query: str, join_plan: JoinPlan, schema: Schema) -> str:
+        return "\n".join(
+            [
+                f"Question: {query}",
+                "",
+                join_plan.prompt_context(schema),
+                "",
+                "Rules:",
+                "- Return exactly one SQLite-compatible SELECT statement.",
+                "- Do not use tables outside the allowed table list.",
+                "- Do not invent join predicates.",
+                "- Use aggregate aliases when helpful.",
+            ]
+        )
+
+    def _extract_response_text(self, response: Any) -> str:
+        output_text = getattr(response, "output_text", None)
+        if output_text:
+            return str(output_text).strip()
+
+        chunks: list[str] = []
+        for item in getattr(response, "output", []) or []:
+            for content in getattr(item, "content", []) or []:
+                text = getattr(content, "text", None)
+                if text:
+                    chunks.append(str(text))
+        return "\n".join(chunks).strip()
+
+    def _strip_code_fence(self, text: str) -> str:
+        stripped = text.strip()
+        if stripped.startswith("```"):
+            stripped = re.sub(r"^```(?:sql)?\s*", "", stripped, flags=re.IGNORECASE)
+            stripped = re.sub(r"\s*```$", "", stripped)
+        return stripped.strip().rstrip(";")
+
+
+class DFCRewriterAdapter:
+    """Adapter around the data-flow-control SQL rewriter project."""
+
+    def __init__(
+        self,
+        project_path: str | None = None,
+        enabled: bool = True,
+    ) -> None:
+        default_path = r"C:\Users\MK\Desktop\data-flow-control\sql_rewriter"
+        self.project_path = Path(project_path or os.environ.get("DFC_SQL_REWRITER_PATH", default_path))
+        self.enabled = enabled
+        self.available = False
+        self.error: str | None = None
+        self._rewriter: Any | None = None
+
+        if enabled:
+            self._load()
+
+    def _load(self) -> None:
+        src_path = self.project_path / "src"
+        if src_path.exists() and str(src_path) not in sys.path:
+            sys.path.insert(0, str(src_path))
+
+        try:
+            from sql_rewriter import SQLRewriter as DFCSQLRewriter
+
+            self._rewriter = DFCSQLRewriter()
+            self.available = True
+        except Exception as exc:
+            self.error = str(exc)
+
+    def build_join_policies(self, join_plan: JoinPlan) -> list[GraphJoinPolicy]:
+        return [GraphJoinPolicy.from_foreign_key(join) for join in join_plan.joins]
+
+    def transform(
+        self, sql: str, policies: list[GraphJoinPolicy] | None = None
+    ) -> tuple[str, list[str]]:
+        policies = policies or []
+        if not self.enabled:
+            return sql, ["DFC rewriter disabled.", *self._policy_notes(policies)]
+        if not self.available or self._rewriter is None:
+            return sql, [
+                f"DFC rewriter unavailable: {self.error}",
+                *self._policy_notes(policies),
+            ]
+        try:
+            transformed = self._rewriter.transform_query(sql)
+            return transformed, [
+                "Transformed with data-flow-control SQLRewriter.",
+                *self._policy_notes(policies),
+            ]
+        except Exception as exc:
+            return sql, [f"DFC transform skipped: {exc}", *self._policy_notes(policies)]
+
+    def _policy_notes(self, policies: list[GraphJoinPolicy]) -> list[str]:
+        if not policies:
+            return ["No graph join policies for this query."]
+        return [
+            (
+                "Graph join policy "
+                f"SOURCES {', '.join(policy.sources)} "
+                f"CONSTRAINT {policy.constraint} "
+                f"ON FAIL {policy.on_fail}"
+            )
+            for policy in policies
+        ]
+
+
 class SQLRewriter:
     """Reactive layer that enforces graph-approved join predicates."""
 
-    JOIN_PATTERN = re.compile(
-        r"JOIN\s+(?P<table>[a-zA-Z_][a-zA-Z0-9_]*)\s+ON\s+"
-        r"(?P<condition>.+?)"
-        r"(?=\s+(?:JOIN|WHERE|GROUP\s+BY|ORDER\s+BY|LIMIT)\b|;|$)",
-        flags=re.IGNORECASE,
-    )
+    def __init__(self, dfc_adapter: DFCRewriterAdapter | None = None) -> None:
+        self.dfc_adapter = dfc_adapter or DFCRewriterAdapter()
 
     def rewrite(self, sql: str, join_plan: JoinPlan) -> RewriteResult:
         notes: list[str] = []
-        from_match = re.search(
-            r"\bFROM\s+([a-zA-Z_][a-zA-Z0-9_]*)", sql, flags=re.IGNORECASE
-        )
-        used_tables = {from_match.group(1).lower()} if from_match else set()
+        original_sql = sql.strip()
+        policies = self.dfc_adapter.build_join_policies(join_plan)
 
-        def replace(match: re.Match[str]) -> str:
-            table = match.group("table").lower()
-            existing = " ".join(match.group("condition").split())
-            allowed = self._allowed_condition_for_join(table, used_tables, join_plan)
+        transformed, dfc_notes = self.dfc_adapter.transform(original_sql, policies)
+        notes.extend(dfc_notes)
+        rewritten = self._repair_join_predicates(transformed, policies, notes)
+        return RewriteResult(
+            sql=rewritten.strip(),
+            changed=rewritten.strip() != original_sql,
+            notes=notes,
+        )
+
+    def _repair_join_predicates(
+        self, sql: str, policies: list[GraphJoinPolicy], notes: list[str]
+    ) -> str:
+        try:
+            parsed = sqlglot.parse_one(sql, read="sqlite")
+        except Exception as exc:
+            notes.append(f"AST join repair skipped: {exc}")
+            return sql
+
+        from_expr = parsed.args.get("from") or parsed.args.get("from_")
+        used_tables: set[str] = set()
+        if from_expr:
+            first_table = next(from_expr.find_all(exp.Table), None)
+            if first_table is not None:
+                used_tables.add(first_table.name.lower())
+
+        for join in parsed.find_all(exp.Join):
+            table_expr = join.this
+            if not isinstance(table_expr, exp.Table):
+                continue
+            table = table_expr.name.lower()
+            existing_expr = join.args.get("on")
+            existing = existing_expr.sql(dialect="sqlite") if existing_expr else ""
+            allowed = self._allowed_condition_for_join(table, used_tables, policies)
             used_tables.add(table)
             if allowed is None:
                 notes.append(f"Join to {table} has no approved graph edge.")
-                return match.group(0)
+                continue
             if self._normalize_condition(existing) != self._normalize_condition(allowed):
                 notes.append(f"Rewrote join predicate for {table}: {existing} -> {allowed}")
-                return f"JOIN {table} ON {allowed} "
-            return match.group(0)
+                join.set("on", sqlglot.parse_one(allowed, read="sqlite"))
 
-        rewritten = self.JOIN_PATTERN.sub(replace, sql)
-        return RewriteResult(sql=rewritten.strip(), changed=rewritten.strip() != sql.strip(), notes=notes)
+        return parsed.sql(dialect="sqlite")
 
     def _allowed_condition_for_join(
-        self, table: str, used_tables: set[str], join_plan: JoinPlan
+        self, table: str, used_tables: set[str], policies: list[GraphJoinPolicy]
     ) -> str | None:
-        for join in join_plan.joins:
-            left = join.left_table.lower()
-            right = join.right_table.lower()
+        for policy in policies:
+            left, right = (source.lower() for source in policy.sources)
             if table == left and right in used_tables:
-                return join.join_condition()
+                return policy.constraint
             if table == right and left in used_tables:
-                return join.join_condition()
+                return policy.constraint
         return None
 
     def _normalize_condition(self, condition: str) -> str:
@@ -669,10 +869,16 @@ class Validator:
         return {match.lower() for match in matches}
 
     def _join_conditions(self, sql: str) -> list[str]:
-        return [
-            " ".join(match.group("condition").split())
-            for match in SQLRewriter.JOIN_PATTERN.finditer(sql)
-        ]
+        try:
+            parsed = sqlglot.parse_one(sql, read="sqlite")
+        except Exception:
+            return []
+        conditions = []
+        for join in parsed.find_all(exp.Join):
+            on_expr = join.args.get("on")
+            if on_expr is not None:
+                conditions.append(" ".join(on_expr.sql(dialect="sqlite").split()))
+        return conditions
 
 
 class RetryController:
@@ -708,13 +914,18 @@ class RetryController:
 
 class TextToSQLAgent:
     def __init__(
-        self, schema: Schema, connection: sqlite3.Connection, use_pruning: bool = True
+        self,
+        schema: Schema,
+        connection: sqlite3.Connection,
+        use_pruning: bool = True,
+        use_llm: bool | None = None,
     ) -> None:
         self.schema = schema
         self.use_pruning = use_pruning
         self.retriever = HybridRetriever(schema)
         self.graph = SchemaGraph(schema)
-        self.generator = SQLGenerator()
+        self.use_llm = use_llm if use_llm is not None else os.environ.get("USE_LLM_AGENT") == "1"
+        self.generator = OpenAILLMGenerator() if self.use_llm else SQLGenerator()
         self.rewriter = SQLRewriter()
         self.executor = SQLExecutor(connection)
         self.validator = Validator(schema)
@@ -780,6 +991,56 @@ class TextToSQLAgent:
         blocked: set[str] = {
             table for table in candidates if any(marker in table for marker in auxiliary_markers)
         }
+        core_tables = {
+            "regions",
+            "customers",
+            "departments",
+            "employees",
+            "orders",
+            "order_items",
+            "products",
+            "suppliers",
+            "payments",
+            "warehouses",
+            "shipments",
+            "returns",
+            "campaigns",
+            "order_campaigns",
+            "inventory",
+            "invoices",
+            "invoice_lines",
+            "subscriptions",
+            "support_tickets",
+            "ticket_events",
+            "customer_segments",
+            "segment_members",
+        }
+        generic_extension_terms = {
+            "account",
+            "amount",
+            "customer",
+            "employee",
+            "invoice",
+            "order",
+            "payment",
+            "product",
+            "region",
+            "sale",
+            "sales",
+            "shipment",
+            "supplier",
+            "support",
+            "ticket",
+            "warehouse",
+        }
+        for table in candidates:
+            if table in core_tables:
+                continue
+            extension_terms = set(expanded_tokens(table.replace("_", " ")))
+            extension_terms -= generic_extension_terms
+            if extension_terms and not (extension_terms & terms):
+                blocked.add(table)
+
         if {"revenue", "sale", "sales"} & terms:
             if not ({"stock", "inventory", "available"} & terms):
                 blocked.add("inventory")
@@ -1452,11 +1713,16 @@ def main() -> None:
         default="Show revenue by customer",
         help="Natural-language query to run through the pipeline.",
     )
+    parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="Use OpenAI-backed SQL generation. Requires OPENAI_API_KEY.",
+    )
     args = parser.parse_args()
 
     schema = build_sample_schema()
     connection = build_sample_database()
-    trace = TextToSQLAgent(schema, connection).run(args.query)
+    trace = TextToSQLAgent(schema, connection, use_llm=args.llm).run(args.query)
     print(trace_to_json(trace))
 
 

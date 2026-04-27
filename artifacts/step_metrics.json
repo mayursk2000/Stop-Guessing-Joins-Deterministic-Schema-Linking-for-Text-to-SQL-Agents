@@ -1,0 +1,132 @@
+﻿{
+  "steps": [
+    {
+      "step": 1,
+      "name": "poster_tests",
+      "purpose": "Validate graph policy rewrite, 100+ table schema, and benchmark improvement.",
+      "status": "passed",
+      "tests_run": 4,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "step": 2,
+      "name": "mini_benchmark",
+      "schema": "22-table core schema",
+      "cases_per_method": 13,
+      "metrics": {
+        "ours": {
+          "join_acc": 100.0,
+          "exec_acc": 100.0,
+          "em": 38.5,
+          "ves": 0.96,
+          "retrieval_recall": 0.962,
+          "validation_accuracy": 1.0
+        },
+        "agent_based": {
+          "join_acc": 75.3,
+          "exec_acc": 69.2,
+          "em": 15.4,
+          "ves": 0.683,
+          "retrieval_recall": 0.962,
+          "validation_accuracy": 1.0
+        }
+      }
+    },
+    {
+      "step": 3,
+      "name": "large_schema_benchmark",
+      "schema": {
+        "tables": 122,
+        "foreign_keys": 126
+      },
+      "cases_per_method": 24,
+      "relationship_metrics": {
+        "cases": 48,
+        "avg_gold_joins": 1.96,
+        "max_gold_joins": 3,
+        "multi_join_cases": 38
+      },
+      "metrics": {
+        "ours": {
+          "join_acc": 68.8,
+          "exec_acc": 50.0,
+          "em": 29.2,
+          "ves": 0.394,
+          "retrieval_recall": 0.729,
+          "validation_accuracy": 0.958
+        },
+        "agent_based": {
+          "join_acc": 39.3,
+          "exec_acc": 50.0,
+          "em": 12.5,
+          "ves": 0.325,
+          "retrieval_recall": 0.729,
+          "validation_accuracy": 0.958
+        }
+      },
+      "comparison_table": [
+        {
+          "Method": "Spider original best",
+          "Join Acc.": "-",
+          "Exec. Acc.": "-",
+          "EM": 12.4,
+          "VES": "-",
+          "Cases": "10,181 Q",
+          "Avg Joins": "-",
+          "Max Joins": "-",
+          "Tables": "200 DBs",
+          "FKs": "-"
+        },
+        {
+          "Method": "BIRD GPT-4 + EK",
+          "Join Acc.": "-",
+          "Exec. Acc.": 54.9,
+          "EM": "-",
+          "VES": "-",
+          "Cases": "12,751 Q",
+          "Avg Joins": "-",
+          "Max Joins": "-",
+          "Tables": "95 DBs",
+          "FKs": "-"
+        },
+        {
+          "Method": "BIRD human",
+          "Join Acc.": "-",
+          "Exec. Acc.": 93.0,
+          "EM": "-",
+          "VES": "-",
+          "Cases": "-",
+          "Avg Joins": "-",
+          "Max Joins": "-",
+          "Tables": "95 DBs",
+          "FKs": "-"
+        },
+        {
+          "Method": "Ours",
+          "Join Acc.": 68.8,
+          "Exec. Acc.": 50.0,
+          "EM": 29.2,
+          "VES": 0.39,
+          "Cases": 24,
+          "Avg Joins": 2.0,
+          "Max Joins": 3,
+          "Tables": 122,
+          "FKs": 126
+        },
+        {
+          "Method": "Agent-based",
+          "Join Acc.": 39.3,
+          "Exec. Acc.": 50.0,
+          "EM": 12.5,
+          "VES": 0.33,
+          "Cases": 24,
+          "Avg Joins": 2.0,
+          "Max Joins": 3,
+          "Tables": 122,
+          "FKs": 126
+        }
+      ]
+    }
+  ]
+}

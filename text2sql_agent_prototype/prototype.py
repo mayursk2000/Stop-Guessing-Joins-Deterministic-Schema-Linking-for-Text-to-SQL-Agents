@@ -806,16 +806,17 @@ class SQLRewriter:
 
 
 class SQLExecutor:
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(self, connection: sqlite3.Connection, row_limit: int = 2000) -> None:
         self.connection = connection
         self.connection.row_factory = sqlite3.Row
+        self.row_limit = row_limit
 
     def execute(self, sql: str) -> ExecutionResult:
         try:
             cursor = self.connection.execute(sql)
-            rows = [dict(row) for row in cursor.fetchall()]
+            rows = [dict(row) for row in cursor.fetchmany(self.row_limit)]
             return ExecutionResult(ok=True, rows=rows)
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, MemoryError) as exc:
             return ExecutionResult(ok=False, rows=[], error=str(exc))
 
 

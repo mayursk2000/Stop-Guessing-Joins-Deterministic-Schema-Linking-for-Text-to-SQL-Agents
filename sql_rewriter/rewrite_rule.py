@@ -63,8 +63,13 @@ def _extract_fk_pairs_from_policy(policy: DFCPolicy) -> list[frozenset]:
 
 
 def _query_satisfies_fk_pairs(parsed: exp.Select, fk_pairs: list[frozenset]) -> bool:
-    """True iff every FK pair is already enforced by an existing column-equality
-    in the query (JOIN ON or WHERE), with table aliases resolved.
+    """True iff every FK pair is already enforced by the query — either via:
+      a) a column-equality (JOIN ON / WHERE) at any nesting level, OR
+      b) an IN-subquery `outer.col IN (SELECT inner.col FROM inner_tbl ...)` whose
+         outer/inner column pair matches the FK.
+
+    Aliases are resolved across all scopes so `JOIN frpm AS T1 ON T1.cd = T2.cd`
+    matches the FK pair `{frpm.cd, schools.cd}` when `T2` is the alias of `schools`.
     """
     if not fk_pairs:
         return False
@@ -77,6 +82,8 @@ def _query_satisfies_fk_pairs(parsed: exp.Select, fk_pairs: list[frozenset]) -> 
             alias_to_real[alias] = real
 
     found: set[frozenset] = set()
+
+    # (a) Direct column-equality enforcement (JOIN ON / WHERE / nested).
     for eq in parsed.find_all(exp.EQ):
         left, right = eq.this, eq.expression
         if not (isinstance(left, exp.Column) and isinstance(right, exp.Column)):
@@ -90,6 +97,54 @@ def _query_satisfies_fk_pairs(parsed: exp.Select, fk_pairs: list[frozenset]) -> 
         found.add(frozenset([
             f"{l_real}.{left.name.lower()}",
             f"{r_real}.{right.name.lower()}",
+        ]))
+
+    # (b) IN-subquery enforcement: `outer.col IN (SELECT inner_col FROM inner_tbl ...)`
+    #     implies an equality between outer.col and inner_tbl.inner_col.
+    for in_node in parsed.find_all(exp.In):
+        outer_col = in_node.this
+        if not isinstance(outer_col, exp.Column):
+            continue
+        outer_qual = (outer_col.table or "").lower()
+        if not outer_qual:
+            continue
+        outer_real = alias_to_real.get(outer_qual, outer_qual)
+
+        # Resolve the subquery — sqlglot may put it under `query` or `expressions`.
+        subq = in_node.args.get("query")
+        if subq is None:
+            for e in (in_node.args.get("expressions") or []):
+                if isinstance(e, (exp.Select, exp.Subquery)):
+                    subq = e
+                    break
+        if subq is None:
+            continue
+
+        select_node = subq if isinstance(subq, exp.Select) else subq.find(exp.Select)
+        if select_node is None or not select_node.expressions:
+            continue
+
+        proj = select_node.expressions[0]
+        if isinstance(proj, exp.Alias):
+            proj = proj.this
+        if not isinstance(proj, exp.Column):
+            continue
+
+        # Inner column qualifier: from proj.table or, if unqualified, the subquery's FROM.
+        inner_qual = (proj.table or "").lower()
+        if not inner_qual:
+            inner_from = select_node.args.get("from")
+            if inner_from:
+                ft = inner_from.find(exp.Table)
+                if ft and ft.name:
+                    inner_qual = ft.name.lower()
+        if not inner_qual:
+            continue
+        inner_real = alias_to_real.get(inner_qual, inner_qual)
+
+        found.add(frozenset([
+            f"{outer_real}.{outer_col.name.lower()}",
+            f"{inner_real}.{proj.name.lower()}",
         ]))
 
     return all(p in found for p in fk_pairs)

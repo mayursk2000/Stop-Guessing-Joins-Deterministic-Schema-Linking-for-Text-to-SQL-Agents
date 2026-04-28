@@ -19,6 +19,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from collections import Counter, defaultdict, deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -806,18 +807,35 @@ class SQLRewriter:
 
 
 class SQLExecutor:
-    def __init__(self, connection: sqlite3.Connection, row_limit: int = 2000) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        row_limit: int = 2000,
+        timeout_seconds: float = 5.0,
+    ) -> None:
         self.connection = connection
         self.connection.row_factory = sqlite3.Row
         self.row_limit = row_limit
+        self.timeout_seconds = timeout_seconds
 
     def execute(self, sql: str) -> ExecutionResult:
         try:
+            deadline = time.monotonic() + self.timeout_seconds
+
+            def _abort_if_timed_out() -> int:
+                return 1 if time.monotonic() > deadline else 0
+
+            self.connection.set_progress_handler(_abort_if_timed_out, 10_000)
             cursor = self.connection.execute(sql)
             rows = [dict(row) for row in cursor.fetchmany(self.row_limit)]
             return ExecutionResult(ok=True, rows=rows)
         except (sqlite3.Error, MemoryError) as exc:
             return ExecutionResult(ok=False, rows=[], error=str(exc))
+        finally:
+            try:
+                self.connection.set_progress_handler(None, 0)
+            except sqlite3.Error:
+                pass
 
 
 class Validator:

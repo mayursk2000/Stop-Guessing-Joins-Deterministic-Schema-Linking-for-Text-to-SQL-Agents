@@ -6,6 +6,7 @@ from typing import Optional
 
 import sqlglot
 from sqlglot import exp
+
 from .sqlglot_utils import get_column_name, get_table_name_from_column
 
 
@@ -38,9 +39,6 @@ class DFCPolicy:
         sink: Optional[str] = None,
         sink_alias: Optional[str] = None,
         description: Optional[str] = None,
-        dimension: Optional[list[str]] = None,
-        repair_mode: Optional[str] = None,
-        hierarchy: Optional[str] = None,
     ) -> None:
         """Initialize a DFC policy.
 
@@ -53,16 +51,6 @@ class DFCPolicy:
             sink_alias: Optional alias name that may be used to reference the sink table
                 within the constraint.
             description: Optional description of the policy.
-            dimension: Optional list of dimension table names. Dimension tables provide
-                requester metadata (e.g. user role) for use in constraints. They are
-                joined in at query time but do not trigger policy matching and their
-                columns are exempt from aggregation rules.
-            repair_mode: Optional repair strategy. 'coarsen' enables SafeCoarsen
-                query repair; 'kill' or None uses the standard on_fail resolution.
-                If 'coarsen', hierarchy must also be provided.
-            hierarchy: Name of the database table containing the grouping hierarchy
-                (node, parent, level) used by SafeCoarsen. Required when
-                repair_mode='coarsen', ignored otherwise.
 
         Raises:
             ValueError: If neither source nor sink is provided, or if validation fails.
@@ -90,49 +78,13 @@ class DFCPolicy:
             seen_sources.add(source_lower)
             normalized_sources.append(source_stripped)
 
-        # Validate and normalize dimension tables
-        dimension = dimension or []
-        if not isinstance(dimension, list):
-            raise ValueError("Dimension must be provided as a list of table names")
-
-        seen_dimensions = set()
-        normalized_dimension = []
-        for dim in dimension:
-            if not isinstance(dim, str) or not dim.strip():
-                raise ValueError("Dimension tables must be non-empty strings")
-            dim_stripped = dim.strip()
-            dim_lower = dim_stripped.lower()
-            if dim_lower in seen_dimensions:
-                raise ValueError(f"Duplicate dimension table '{dim_stripped}' in dimension list")
-            if dim_lower in seen_sources:
-                raise ValueError(
-                    f"Table '{dim_stripped}' cannot appear in both sources and dimension"
-                )
-            seen_dimensions.add(dim_lower)
-            normalized_dimension.append(dim_stripped)
-
         self.sources = normalized_sources
         self.sink = sink
         self.sink_alias = sink_alias.strip() if isinstance(sink_alias, str) else sink_alias
         self.constraint = constraint
         self.on_fail = on_fail
         self.description = description
-        self.dimension = normalized_dimension
-
         self._sources_lower = {source.lower() for source in self.sources}
-        self._dimension_lower = {dim.lower() for dim in self.dimension}
-        
-        # Validate repair_mode
-        if repair_mode is not None and repair_mode.lower() not in ("coarsen", "kill"):
-            raise ValueError(
-                f"Invalid repair_mode '{repair_mode}'. Must be 'coarsen', 'kill', or None."
-            )
-        if repair_mode is not None and repair_mode.lower() == "coarsen" and not hierarchy:
-            raise ValueError("repair_mode='coarsen' requires a hierarchy table to be specified.")
-
-        self.repair_mode = repair_mode.lower() if repair_mode else None
-        self.hierarchy = hierarchy.strip() if isinstance(hierarchy, str) else None
-
         self._sink_reference_names = set()
         sink_overlaps_source = self.sink and self.sink.lower() in self._sources_lower
         if self.sink and not (sink_overlaps_source and self.sink_alias):
@@ -151,11 +103,11 @@ class DFCPolicy:
         """Create a DFCPolicy from a policy string.
 
         Parses a policy string in the format:
-        SOURCES <source1, source2> SINK <sink> DIMENSION <dim1, dim2> CONSTRAINT <constraint> ON FAIL <on_fail> [DESCRIPTION <description>]
+        SOURCES <source1, source2> SINK <sink> CONSTRAINT <constraint> ON FAIL <on_fail> [DESCRIPTION <description>]
 
         Fields can be separated by any whitespace (spaces, tabs, newlines).
         The constraint value can contain spaces.
-        DESCRIPTION and DIMENSION are optional and can appear anywhere in the string.
+        DESCRIPTION is optional and can appear anywhere in the string.
 
         Args:
             policy_str: The policy string to parse
@@ -177,17 +129,13 @@ class DFCPolicy:
         constraint = None
         on_fail = None
         description = None
-        dimension: list[str] = []
-        repair_mode = None
-        hierarchy = None
-        predicate_family = None
 
         # Find positions of all keywords (case-insensitive)
         # Handle "ON FAIL" as a special case since it's two words
         keyword_positions = []
 
         # Find single-word keywords
-        for keyword in ["SOURCES", "SINK", "CONSTRAINT", "DESCRIPTION", "DIMENSION", "HIERARCHY", "REPAIR", "PREDICATE"]:
+        for keyword in ["SOURCES", "SINK", "CONSTRAINT", "DESCRIPTION"]:
             pattern = r"\b" + re.escape(keyword) + r"\b"
             for match in re.finditer(pattern, normalized, re.IGNORECASE):
                 keyword_positions.append((match.start(), keyword.upper()))
@@ -198,13 +146,6 @@ class DFCPolicy:
 
         # Sort by position
         keyword_positions.sort()
-
-        # DESCRIPTION consumes everything to end of string — drop any
-        # keyword matches that appear after it (they are inside the value)
-        desc_positions = [pos for pos, kw in keyword_positions if kw == "DESCRIPTION"]
-        if desc_positions:
-            first_desc = desc_positions[0]
-            keyword_positions = [(pos, kw) for pos, kw in keyword_positions if pos <= first_desc]
 
         # Extract values between keywords
         for i, (pos, keyword) in enumerate(keyword_positions):
@@ -232,11 +173,6 @@ class DFCPolicy:
                     sources = [item.strip() for item in value.split(",") if item.strip()]
             elif keyword == "SINK":
                 sink = value if value and value.upper() != "NONE" else None
-            elif keyword == "DIMENSION":
-                if not value or value.upper() == "NONE":
-                    dimension = []
-                else:
-                    dimension = [item.strip() for item in value.split(",") if item.strip()]
             elif keyword == "CONSTRAINT":
                 constraint = value
             elif keyword == "ON FAIL":
@@ -249,12 +185,6 @@ class DFCPolicy:
                     ) from e
             elif keyword == "DESCRIPTION":
                 description = value if value else None
-            elif keyword == "HIERARCHY":
-                hierarchy = value if value and value.upper() != "NONE" else None
-            elif keyword == "REPAIR":
-                repair_mode = value if value else None
-            elif keyword == "PREDICATE":
-                predicate_family = value if value else None
 
         # Validate required fields
         if constraint is None:
@@ -267,18 +197,13 @@ class DFCPolicy:
             raise ValueError("Either SOURCES or SINK must be provided")
 
         # Create and return the policy
-        policy = cls(
+        return cls(
             constraint=constraint,
             on_fail=on_fail,
             sources=sources,
             sink=sink,
-            description=description,
-            dimension=dimension,
-            repair_mode=repair_mode,
-            hierarchy=hierarchy,
+            description=description
         )
-        policy.predicate_family = predicate_family
-        return policy
 
     def _validate(self) -> None:
         """Validate that source, sink, and constraint are valid SQL syntax.
@@ -293,41 +218,31 @@ class DFCPolicy:
             self._validate_table_name(self.sink, "Sink")
         if self.sink_alias:
             self._validate_identifier_name(self.sink_alias, "Sink alias")
-        for dim in self.dimension:
-            self._validate_table_name(dim, "Dimension")
-        if self.hierarchy:
-            self._validate_table_name(self.hierarchy, "Hierarchy")
 
         if isinstance(self._constraint_parsed, exp.Select):
             raise ValueError("Constraint must be an expression, not a SELECT statement")
 
         try:
-            # Build all tables for the test query: sources + sink + dimension
-            all_tables = []
             if self.sources and self.sink:
                 sources_from = ", ".join(self.sources)
                 sink_ref = self.sink
                 if self.sink_alias:
                     sink_ref = f"{self.sink} AS {self.sink_alias}"
-                all_tables = [sources_from, sink_ref]
+                test_query = f"SELECT ({self.constraint}) AS policy_check FROM {sources_from}, {sink_ref}"
             elif self.sources:
-                all_tables = [", ".join(self.sources)]
+                sources_from = ", ".join(self.sources)
+                test_query = f"SELECT ({self.constraint}) AS policy_check FROM {sources_from}"
             else:
                 sink_ref = self.sink
                 if self.sink_alias:
                     sink_ref = f"{self.sink} AS {self.sink_alias}"
-                all_tables = [sink_ref]
+                test_query = f"SELECT ({self.constraint}) AS policy_check FROM {sink_ref}"
 
-            if self.dimension:
-                all_tables.extend(self.dimension)
-
-            from_clause = ", ".join(all_tables)
-            test_query = f"SELECT ({self.constraint}) AS policy_check FROM {from_clause}"
             sqlglot.parse_one(test_query, read="duckdb")
         except sqlglot.errors.ParseError as e:
             raise ValueError(
                 f"Constraint '{self.constraint}' cannot be evaluated with "
-                f"sources={self.sources}, sink={self.sink}, dimension={self.dimension}: {e}"
+                f"sources={self.sources}, sink={self.sink}: {e}"
             ) from e
 
         self._validate_column_qualification()
@@ -338,7 +253,7 @@ class DFCPolicy:
 
         Args:
             table_name: The table name to validate.
-            table_type: The type of table ("Source", "Sink", or "Dimension") for error messages.
+            table_type: The type of table ("Source" or "Sink") for error messages.
 
         Raises:
             ValueError: If the table name is invalid.
@@ -406,6 +321,7 @@ class DFCPolicy:
                 raise ValueError(f"Invalid constraint SQL expression '{self.constraint}': {e}") from e
             raise
 
+
     def _validate_column_qualification(self) -> None:
         """Validate that all columns in the constraint are qualified with table names."""
         columns = list(self._constraint_parsed.find_all(exp.Column))
@@ -459,12 +375,12 @@ class DFCPolicy:
         return needed_columns
 
     def _validate_aggregation_rules(self) -> None:
-        """Validate aggregation rules.
+        """Validate aggregation rules: aggregations only reference source, and all source columns are aggregated.
 
-        - Aggregations only reference source tables (not sink or dimension)
-        - All source columns must be inside aggregation functions
-        - Dimension columns are exempt from aggregation rules (they provide
-          requester metadata and can appear unaggregated in constraints)
+        EXCEPTION: pure join-shaped constraints (a conjunction of cross-source-table
+        column equalities, no aggregations) are permitted unaggregated. They express
+        foreign-key relational integrity, which is structural — not a data-flow
+        aggregation invariant. See `_is_pure_join_constraint`.
         """
         aggregate_funcs = list(self._constraint_parsed.find_all(exp.AggFunc))
         all_columns = list(self._constraint_parsed.find_all(exp.Column))
@@ -489,21 +405,21 @@ class DFCPolicy:
                             f"Aggregation '{agg_func.sql()}' references sink table '{table_name}', "
                             "but aggregations can only reference source tables"
                         )
-                    # Dimension columns are allowed inside aggregations
-                    # (though unusual, not prohibited)
-                    if table_name not in self._sources_lower and table_name not in self._dimension_lower:
+                    if table_name not in self._sources_lower:
                         raise ValueError(
                             f"Aggregation '{agg_func.sql()}' references table '{table_name}', "
                             f"but aggregations can only reference source tables {self.sources}"
                         )
 
+        # Pure FK-style join constraints bypass the "all source columns aggregated"
+        # rule. Aggregation checks above still apply to anything containing AggFuncs.
+        if self.sources and self._is_pure_join_constraint():
+            return
+
         if self.sources:
             unaggregated_source_columns = []
             for column in all_columns:
                 table_name = get_table_name_from_column(column)
-                # Dimension columns are exempt from the aggregation requirement
-                if table_name in self._dimension_lower:
-                    continue
                 if table_name in self._sources_lower and column.find_ancestor(exp.AggFunc) is None:
                     unaggregated_source_columns.append(f"{table_name}.{get_column_name(column)}")
 
@@ -512,6 +428,50 @@ class DFCPolicy:
                     "All columns from source tables must be aggregated. "
                     f"Unaggregated source columns found: {', '.join(unaggregated_source_columns)}"
                 )
+
+    def _is_pure_join_constraint(self) -> bool:
+        """True iff the constraint is a conjunction of cross-table column equalities
+        between distinct source tables — i.e. an FK-style relational integrity invariant.
+
+        Returns True for:
+            frpm.CDSCode = schools.CDSCode
+            a.x = b.y AND a.z = c.w
+        Returns False for:
+            COUNT(t.id) > 10                    (aggregation present)
+            t.year > 2020                       (literal comparison, not column-column)
+            t.id = t.id_alt                     (same-table equality)
+            t.id = u.id OR t.k = u.k            (disjunction, not pure conjunction)
+        """
+        if list(self._constraint_parsed.find_all(exp.AggFunc)):
+            return False
+
+        def flatten_and(node: exp.Expression) -> list[exp.Expression]:
+            while isinstance(node, exp.Paren):
+                node = node.this
+            if isinstance(node, exp.And):
+                return flatten_and(node.this) + flatten_and(node.expression)
+            return [node]
+
+        conjuncts = flatten_and(self._constraint_parsed)
+        if not conjuncts:
+            return False
+
+        for c in conjuncts:
+            while isinstance(c, exp.Paren):
+                c = c.this
+            if not isinstance(c, exp.EQ):
+                return False
+            left, right = c.this, c.expression
+            if not (isinstance(left, exp.Column) and isinstance(right, exp.Column)):
+                return False
+            l_tbl = (left.table or "").lower()
+            r_tbl = (right.table or "").lower()
+            if not l_tbl or not r_tbl or l_tbl == r_tbl:
+                return False
+            if l_tbl not in self._sources_lower or r_tbl not in self._sources_lower:
+                return False
+
+        return True
 
     def get_identifier(self) -> str:
         """Get a descriptive identifier for a policy for logging purposes.
@@ -526,13 +486,6 @@ class DFCPolicy:
             parts.append(f"sink={self.sink}")
         if self.sink_alias:
             parts.append(f"sink_alias={self.sink_alias}")
-        if self.dimension:
-            parts.append(f"dimension={self.dimension}")
-        if self.repair_mode:
-            parts.append(f"repair_mode={self.repair_mode}")
-        if self.hierarchy:
-            parts.append(f"hierarchy={self.hierarchy}")
-        
         parts.append(f"constraint={self.constraint}")
         return f"DFCPolicy({', '.join(parts)})"
 
@@ -545,13 +498,6 @@ class DFCPolicy:
             parts.append(f"sink={self.sink!r}")
         if self.sink_alias:
             parts.append(f"sink_alias={self.sink_alias!r}")
-        if self.dimension:
-            parts.append(f"dimension={self.dimension!r}")
-        if self.repair_mode:
-            parts.append(f"repair_mode={self.repair_mode!r}")
-        if self.hierarchy:
-            parts.append(f"hierarchy={self.hierarchy!r}")
-        
         parts.append(f"constraint={self.constraint!r}")
         parts.append(f"on_fail={self.on_fail.value}")
         if self.description:
@@ -566,12 +512,9 @@ class DFCPolicy:
             self.sources == other.sources
             and self.sink == other.sink
             and self.sink_alias == other.sink_alias
-            and self.dimension == other.dimension
             and self.constraint == other.constraint
             and self.on_fail == other.on_fail
             and self.description == other.description
-            and self.repair_mode == other.repair_mode
-            and self.hierarchy == other.hierarchy
         )
 
 
@@ -794,7 +737,15 @@ class AggregateDFCPolicy:
         self._validate_aggregation_rules()
 
     def _validate_table_name(self, table_name: str, table_type: str) -> None:
-        """Validate that a table name is a valid SQL identifier."""
+        """Validate that a table name is a valid SQL identifier.
+
+        Args:
+            table_name: The table name to validate.
+            table_type: The type of table ("Source" or "Sink") for error messages.
+
+        Raises:
+            ValueError: If the table name is invalid.
+        """
         try:
             test_query = f"SELECT * FROM {table_name}"
             parsed = sqlglot.parse_one(test_query, read="duckdb")
@@ -811,7 +762,14 @@ class AggregateDFCPolicy:
             raise
 
     def _parse_constraint(self) -> exp.Expression:
-        """Parse the constraint SQL expression."""
+        """Parse the constraint SQL expression.
+
+        Returns:
+            The parsed constraint expression.
+
+        Raises:
+            ValueError: If the constraint is invalid or is a SELECT statement.
+        """
         try:
             constraint_parsed = sqlglot.parse_one(self.constraint, read="duckdb")
             if isinstance(constraint_parsed, exp.Select):
@@ -823,6 +781,7 @@ class AggregateDFCPolicy:
                 if not isinstance(parsed, exp.Select):
                     raise ValueError("Constraint must be a valid SQL expression")
 
+                # The first expression is an Alias, and we want the 'this' attribute
                 if parsed.expressions and hasattr(parsed.expressions[0], "this"):
                     return parsed.expressions[0].this
                 return constraint_parsed
@@ -841,7 +800,14 @@ class AggregateDFCPolicy:
             raise
 
     def _validate_column_qualification(self) -> None:
-        """Validate that all columns in the constraint are qualified with table names."""
+        """Validate that all columns in the constraint are qualified with table names.
+
+        Exceptions:
+        - Columns inside FILTER clauses are allowed to be unqualified as they're
+          in a WHERE context and may reference the sink table
+        - Columns that are direct arguments to aggregate functions AND match the sink
+          table name are allowed (as shorthand for table reference)
+        """
         columns = list(self._constraint_parsed.find_all(exp.Column))
         unqualified_columns = []
 
@@ -849,9 +815,14 @@ class AggregateDFCPolicy:
             if not column.table:
                 col_name = get_column_name(column).lower()
 
+                # Check if this column is inside a FILTER clause
+                # FILTER clauses have their own WHERE context
                 if column.find_ancestor(exp.Filter) is not None:
+                    # Column is inside a FILTER clause - allow unqualified
                     continue
 
+                # Check if this column is the direct argument of an aggregate function
+                # AND it matches the sink table name (as a shorthand)
                 parent = column.parent
                 if (
                     isinstance(parent, exp.AggFunc)
@@ -860,8 +831,10 @@ class AggregateDFCPolicy:
                     and self.sink
                     and col_name == self.sink.lower()
                 ):
+                    # This is a shorthand for the sink table - allow unqualified
                     continue
 
+                # Otherwise, it's an unqualified column that should be flagged
                 unqualified_columns.append(col_name)
 
         if unqualified_columns:
@@ -871,12 +844,17 @@ class AggregateDFCPolicy:
             )
 
     def _calculate_source_columns_needed(self) -> dict[str, set[str]]:
-        """Calculate the set of source columns needed."""
+        """Calculate the set of source columns needed.
+
+        Returns:
+            Mapping of source table names (lowercase) to needed column names (lowercase).
+        """
         if not self.sources:
             return {}
 
         needed_columns: dict[str, set[str]] = {source.lower(): set() for source in self.sources}
 
+        # Extract columns from aggregations
         for agg_func in self._constraint_parsed.find_all(exp.AggFunc):
             columns = list(agg_func.find_all(exp.Column))
             for column in columns:
@@ -885,7 +863,9 @@ class AggregateDFCPolicy:
                     col_name = get_column_name(column).lower()
                     needed_columns[table_name].add(col_name)
 
+        # Also extract any non-aggregated source columns
         for column in self._constraint_parsed.find_all(exp.Column):
+            # Skip columns that are inside aggregations (already handled above)
             if column.find_ancestor(exp.AggFunc) is not None:
                 continue
 
@@ -901,6 +881,7 @@ class AggregateDFCPolicy:
         list(self._constraint_parsed.find_all(exp.AggFunc))
         all_columns = list(self._constraint_parsed.find_all(exp.Column))
 
+        # Source columns must be aggregated
         if self.sources:
             unaggregated_source_columns = []
             for column in all_columns:
@@ -915,7 +896,11 @@ class AggregateDFCPolicy:
                 )
 
     def get_identifier(self) -> str:
-        """Get a descriptive identifier for a policy for logging purposes."""
+        """Get a descriptive identifier for a policy for logging purposes.
+
+        Returns:
+            A string identifier for the policy.
+        """
         parts = []
         if self.sources:
             parts.append(f"sources={self.sources}")

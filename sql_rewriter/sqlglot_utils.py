@@ -1,13 +1,16 @@
 """Utility functions for working with sqlglot expressions."""
 
 from typing import Optional
+
 from sqlglot import exp
 
 
 def get_column_name(column: exp.Column) -> str:
     """Extract column name from a column expression.
+
     Args:
         column: The column expression.
+
     Returns:
         The column name as a string.
     """

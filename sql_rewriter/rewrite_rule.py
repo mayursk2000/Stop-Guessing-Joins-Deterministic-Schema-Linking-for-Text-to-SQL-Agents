@@ -549,33 +549,6 @@ def _add_invalidate_message_column_to_select(
     parsed.expressions.append(invalid_string_alias)
 
 
-def _wrap_dimension_columns_in_aggregation(
-    constraint_expr: exp.Expression,
-    dimension_lower: set[str]
-) -> exp.Expression:
-    """Wrap unaggregated dimension columns in MAX() for HAVING clause compatibility.
-
-    In aggregation queries, DuckDB requires all non-grouped columns to be inside
-    aggregate functions. Dimension tables have exactly one row so MAX(col) = col
-    semantically, but satisfies the DuckDB binder.
-
-    Args:
-        constraint_expr: The constraint expression to transform.
-        dimension_lower: Set of dimension table names (lowercase).
-
-    Returns:
-        A new expression with bare dimension columns wrapped in MAX().
-    """
-    def wrap(node):
-        if isinstance(node, exp.Column):
-            table_ref = get_table_name_from_column(node)
-            if table_ref and table_ref in dimension_lower:
-                if node.find_ancestor(exp.AggFunc) is None:
-                    return exp.Max(this=node)
-        return node
-    return constraint_expr.transform(wrap, copy=True)
-
-
 def apply_policy_constraints_to_aggregation(
     parsed: exp.Select,
     policies: list[DFCPolicy],
@@ -601,15 +574,7 @@ def apply_policy_constraints_to_aggregation(
         sink_to_output_mapping: Optional mapping from sink column names to SELECT output column names.
     """
     # Build mapping from source tables to subquery/CTE aliases
-    _dimension_tables = {
-        dim
-        for policy in policies
-        for dim in getattr(policy, "_dimension_lower", set())
-    }
-    
-    table_mapping = _get_source_table_to_alias_mapping(
-        parsed, source_tables, dimension_tables=_dimension_tables or None
-    )
+    table_mapping = _get_source_table_to_alias_mapping(parsed, source_tables)
 
     for policy in policies:
         # Check if policy requires sources but sources are not present
@@ -643,12 +608,6 @@ def apply_policy_constraints_to_aggregation(
             )
 
             ensure_columns_accessible(parsed, constraint_expr, source_tables)
-            
-            # Wrap bare dimension columns in MAX() so DuckDB accepts them in HAVING
-            if hasattr(policy, "_dimension_lower") and policy._dimension_lower:
-                constraint_expr = _wrap_dimension_columns_in_aggregation(
-                    constraint_expr, policy._dimension_lower
-                )
 
         if policy.on_fail == Resolution.KILL:
             constraint_expr = _wrap_kill_constraint(constraint_expr)
@@ -1080,55 +1039,54 @@ def _replace_sink_table_references_in_constraint(
 
 
 def _get_source_table_to_alias_mapping(
-    parsed,
-    source_tables,
-    dimension_tables=None
-):
+    parsed: exp.Select,
+    source_tables: set[str]
+) -> dict[str, str]:
     """Build a mapping from source table names to their subquery/CTE aliases.
- 
+
     Args:
         parsed: The parsed SELECT statement.
         source_tables: Set of source table names in the query.
-        dimension_tables: Optional set of dimension table names (lowercase).
-            Dimension tables are excluded from main_query_tables so they are
-            never accidentally mapped as source aliases.
- 
+
     Returns:
         Dictionary mapping source table name (lowercase) to subquery/CTE alias (lowercase).
-        Only includes mappings for source tables that are in subqueries/CTEs,
-        not in the main query.
+        Only includes mappings for source tables that are in subqueries/CTEs, not in the main query.
     """
     mapping = {}
-    _dim = dimension_tables or set()   # normalise to empty set for simple guards
- 
+
     # Get CTE aliases to exclude them from main_query_tables
     cte_aliases = {alias for _, alias in _get_ctes(parsed)}
- 
+
     # Check which source tables are in the main query's FROM/JOIN (not in subqueries/CTEs)
+    # We need to find actual table names, not subquery/CTE aliases
     main_query_tables = set()
+    # Get the main query's FROM clause
     if hasattr(parsed, "from") and parsed.from_:
+        # Find all tables directly in the main FROM clause
         for table in parsed.from_.find_all(exp.Table):
+            # Exclude tables that are subqueries (they have Subquery as 'this')
             if (
                 not (hasattr(table, "this") and isinstance(table.this, exp.Subquery))
                 and not table.find_ancestor(exp.Subquery)
                 and not table.find_ancestor(exp.CTE)
                 and table.name.lower() not in cte_aliases
-                and table.name.lower() not in _dim   # NEW: skip dimension tables
             ):
                 main_query_tables.add(table.name.lower())
+        # Also check JOINs directly in the main query
         for join in parsed.find_all(exp.Join):
             if (not join.find_ancestor(exp.Subquery) and
                 not join.find_ancestor(exp.CTE)):
                 for table in join.find_all(exp.Table):
+                    # Exclude subquery tables
                     if (
                         not (hasattr(table, "this") and isinstance(table.this, exp.Subquery))
                         and table.name.lower() not in cte_aliases
-                        and table.name.lower() not in _dim   # NEW: skip dimension tables
                     ):
                         main_query_tables.add(table.name.lower())
- 
+
     # Map source tables to their aliases in the main query when unambiguous.
-    main_query_aliases = {}
+    # This ensures constraints reference aliases that are actually visible.
+    main_query_aliases: dict[str, set[str]] = {}
     for table in parsed.find_all(exp.Table):
         if table.find_ancestor(exp.Subquery) or table.find_ancestor(exp.CTE):
             continue
@@ -1138,42 +1096,50 @@ def _get_source_table_to_alias_mapping(
         alias_name = str(table.alias_or_name).lower()
         if alias_name and alias_name != source_name:
             main_query_aliases.setdefault(source_name, set()).add(alias_name)
- 
+
     for source_name, aliases in main_query_aliases.items():
         if len(aliases) == 1:
             mapping[source_name] = next(iter(aliases))
- 
+
     # Find all subqueries in FROM clauses
     subqueries = _get_subqueries_in_from(parsed)
     for subquery, subquery_alias in subqueries:
         if not isinstance(subquery.this, exp.Select):
             continue
+
+        # Find which source tables are referenced in this subquery
         subquery_tables = set()
         for table in subquery.this.find_all(exp.Table):
             if table.find_ancestor(exp.From) or table.find_ancestor(exp.Join):
                 subquery_tables.add(table.name.lower())
- 
+
+        # Map source tables that are in this subquery but not in main query
         for source_table in source_tables:
             if source_table in subquery_tables and source_table not in main_query_tables:
                 mapping[source_table] = subquery_alias
- 
+
     # Find all CTEs
     ctes = _get_ctes(parsed)
     for cte, cte_alias in ctes:
+        # In sqlglot, CTE.this is the SELECT expression
         cte_select = cte.this if hasattr(cte, "this") and isinstance(cte.this, exp.Select) else None
         if not cte_select:
+            # Fallback: check expression attribute
             cte_select = cte.expression if hasattr(cte, "expression") else None
         if not isinstance(cte_select, exp.Select):
             continue
+
+        # Find which source tables are referenced in this CTE
         cte_tables = set()
         for table in cte_select.find_all(exp.Table):
             if table.find_ancestor(exp.From) or table.find_ancestor(exp.Join):
                 cte_tables.add(table.name.lower())
- 
+
+        # Map source tables that are in this CTE but not in main query
         for source_table in source_tables:
             if source_table in cte_tables and source_table not in main_query_tables:
                 mapping[source_table] = cte_alias
- 
+
     return mapping
 
 
@@ -1720,15 +1686,7 @@ def apply_policy_constraints_to_scan(
         sink_to_output_mapping: Optional mapping from sink column names to SELECT output column names.
     """
     # Build mapping from source tables to subquery/CTE aliases
-    _dimension_tables = {
-        dim
-        for policy in policies
-        for dim in getattr(policy, "_dimension_lower", set())
-    }
-    
-    table_mapping = _get_source_table_to_alias_mapping(
-        parsed, source_tables, dimension_tables=_dimension_tables or None
-    )
+    table_mapping = _get_source_table_to_alias_mapping(parsed, source_tables)
 
     for policy in policies:
         # Check if policy requires sources but sources are not present

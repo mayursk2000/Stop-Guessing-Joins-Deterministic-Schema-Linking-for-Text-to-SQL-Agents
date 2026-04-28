@@ -142,57 +142,85 @@ class SQLRewriter:
                 )
 
                 if matching_policies:
-                    if not use_two_phase:
-                        rewrite_in_subqueries_as_joins(parsed, matching_policies, from_tables)
-                        rewrite_exists_subqueries_as_joins(parsed, matching_policies, from_tables)
-                        from_tables = self._get_source_tables(parsed)
+                    # Split FK-shaped (relational-integrity) policies from aggregate-shaped ones.
+                    # Only apply_policy_constraints_* know how to handle FK policies (skip-when-
+                    # satisfied + WHERE-not-HAVING). All other DFC pre-application paths
+                    # (IN/EXISTS subquery rewriting, two-phase aggregation, limit-CTE wrapping)
+                    # inject "dfc"/"in_subquery" aliases that corrupt FK queries.
+                    fk_policies = [
+                        p for p in matching_policies
+                        if isinstance(p, DFCPolicy)
+                        and hasattr(p, "_is_pure_join_constraint")
+                        and p._is_pure_join_constraint()
+                    ]
+                    aggregate_policies = [p for p in matching_policies if p not in fk_policies]
 
-                    has_limit = parsed.args.get("limit") is not None
-                    has_remove_policy = any(p.on_fail == Resolution.REMOVE for p in matching_policies)
-
-                    if has_limit and has_remove_policy:
-                        remove_policy = next(p for p in matching_policies if p.on_fail == Resolution.REMOVE)
-                        if use_two_phase:
-                            if self._has_aggregations(parsed):
-                                parsed = self._rewrite_limit_aggregation_with_two_phase(
-                                    parsed,
-                                    matching_policies,
-                                    from_tables,
-                                    remove_policy,
-                                )
-                            else:
-                                wrap_query_with_limit_in_cte_for_remove_policy(
-                                    parsed,
-                                    remove_policy,
-                                    from_tables,
-                                    is_aggregation=False,
-                                )
-                        else:
-                            is_aggregation = self._has_aggregations(parsed)
-                            wrap_query_with_limit_in_cte_for_remove_policy(
-                                parsed, remove_policy, from_tables, is_aggregation
-                            )
-                    else:
-                        if not (use_two_phase and self._has_aggregations(parsed)):
-                            ensure_subqueries_have_constraint_columns(parsed, matching_policies, from_tables)
-
+                    # FK policies first — direct path, no subquery/two-phase rewrites.
+                    if fk_policies:
                         if self._has_aggregations(parsed):
-                            if use_two_phase:
-                                parsed = self._rewrite_aggregation_with_two_phase(
-                                    parsed,
-                                    matching_policies,
-                                    from_tables,
-                                )
-                            else:
-                                apply_policy_constraints_to_aggregation(
-                                    parsed, matching_policies, from_tables,
-                                    stream_file_path=self._stream_file_path
-                                )
-                        else:
-                            apply_policy_constraints_to_scan(
-                                parsed, matching_policies, from_tables,
+                            apply_policy_constraints_to_aggregation(
+                                parsed, fk_policies, from_tables,
                                 stream_file_path=self._stream_file_path
                             )
+                        else:
+                            apply_policy_constraints_to_scan(
+                                parsed, fk_policies, from_tables,
+                                stream_file_path=self._stream_file_path
+                            )
+
+                    # Aggregate policies go through the original DFC pipeline unchanged.
+                    if aggregate_policies:
+                        if not use_two_phase:
+                            rewrite_in_subqueries_as_joins(parsed, aggregate_policies, from_tables)
+                            rewrite_exists_subqueries_as_joins(parsed, aggregate_policies, from_tables)
+                            from_tables = self._get_source_tables(parsed)
+
+                        has_limit = parsed.args.get("limit") is not None
+                        has_remove_policy = any(p.on_fail == Resolution.REMOVE for p in aggregate_policies)
+
+                        if has_limit and has_remove_policy:
+                            remove_policy = next(p for p in aggregate_policies if p.on_fail == Resolution.REMOVE)
+                            if use_two_phase:
+                                if self._has_aggregations(parsed):
+                                    parsed = self._rewrite_limit_aggregation_with_two_phase(
+                                        parsed,
+                                        aggregate_policies,
+                                        from_tables,
+                                        remove_policy,
+                                    )
+                                else:
+                                    wrap_query_with_limit_in_cte_for_remove_policy(
+                                        parsed,
+                                        remove_policy,
+                                        from_tables,
+                                        is_aggregation=False,
+                                    )
+                            else:
+                                is_aggregation = self._has_aggregations(parsed)
+                                wrap_query_with_limit_in_cte_for_remove_policy(
+                                    parsed, remove_policy, from_tables, is_aggregation
+                                )
+                        else:
+                            if not (use_two_phase and self._has_aggregations(parsed)):
+                                ensure_subqueries_have_constraint_columns(parsed, aggregate_policies, from_tables)
+
+                            if self._has_aggregations(parsed):
+                                if use_two_phase:
+                                    parsed = self._rewrite_aggregation_with_two_phase(
+                                        parsed,
+                                        aggregate_policies,
+                                        from_tables,
+                                    )
+                                else:
+                                    apply_policy_constraints_to_aggregation(
+                                        parsed, aggregate_policies, from_tables,
+                                        stream_file_path=self._stream_file_path
+                                    )
+                            else:
+                                apply_policy_constraints_to_scan(
+                                    parsed, aggregate_policies, from_tables,
+                                    stream_file_path=self._stream_file_path
+                                )
 
                 if matching_aggregate_policies:
                     if self._has_aggregations(parsed):

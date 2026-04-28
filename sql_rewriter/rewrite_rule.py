@@ -13,6 +13,88 @@ from .sqlglot_utils import get_column_name, get_table_name_from_column
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# FK-shaped policy helpers
+#
+# A "pure join-shaped" DFCPolicy expresses a foreign-key relational integrity
+# invariant (`a.x = b.y` between distinct source tables, no aggregations).
+# These helpers let the enforcement functions below detect such policies and
+# (1) skip emission when the query's existing JOINs already enforce the FK,
+# (2) emit the constraint as WHERE rather than HAVING for aggregate queries
+#     that have no GROUP BY — where HAVING is illegal in SQLite/most engines.
+# ---------------------------------------------------------------------------
+
+def _extract_fk_pairs_from_policy(policy: DFCPolicy) -> list[frozenset]:
+    """Return FK column pairs from a pure-join-shaped DFCPolicy.
+
+    Each pair is a frozenset of two qualified column strings (`"table.col"`).
+    Returns an empty list if the policy is not FK-shaped.
+    """
+    if not hasattr(policy, "_is_pure_join_constraint"):
+        return []
+    if not policy._is_pure_join_constraint():
+        return []
+
+    pairs: list[frozenset] = []
+
+    def collect(node: exp.Expression) -> None:
+        while isinstance(node, exp.Paren):
+            node = node.this
+        if isinstance(node, exp.And):
+            collect(node.this)
+            collect(node.expression)
+            return
+        if not isinstance(node, exp.EQ):
+            return
+        left, right = node.this, node.expression
+        if not (isinstance(left, exp.Column) and isinstance(right, exp.Column)):
+            return
+        l_tbl = (left.table or "").lower()
+        r_tbl = (right.table or "").lower()
+        if not l_tbl or not r_tbl:
+            return
+        pairs.append(frozenset([
+            f"{l_tbl}.{left.name.lower()}",
+            f"{r_tbl}.{right.name.lower()}",
+        ]))
+
+    collect(policy._constraint_parsed)
+    return pairs
+
+
+def _query_satisfies_fk_pairs(parsed: exp.Select, fk_pairs: list[frozenset]) -> bool:
+    """True iff every FK pair is already enforced by an existing column-equality
+    in the query (JOIN ON or WHERE), with table aliases resolved.
+    """
+    if not fk_pairs:
+        return False
+
+    alias_to_real: dict[str, str] = {}
+    for t in parsed.find_all(exp.Table):
+        real = (t.name or "").lower()
+        alias = (t.alias or t.name or "").lower()
+        if real and alias:
+            alias_to_real[alias] = real
+
+    found: set[frozenset] = set()
+    for eq in parsed.find_all(exp.EQ):
+        left, right = eq.this, eq.expression
+        if not (isinstance(left, exp.Column) and isinstance(right, exp.Column)):
+            continue
+        l_qual = (left.table or "").lower()
+        r_qual = (right.table or "").lower()
+        if not l_qual or not r_qual:
+            continue
+        l_real = alias_to_real.get(l_qual, l_qual)
+        r_real = alias_to_real.get(r_qual, r_qual)
+        found.add(frozenset([
+            f"{l_real}.{left.name.lower()}",
+            f"{r_real}.{right.name.lower()}",
+        ]))
+
+    return all(p in found for p in fk_pairs)
+
+
 def _wrap_kill_constraint(constraint_expr: exp.Expression) -> exp.Expression:
     """Wrap a constraint expression in CASE WHEN for KILL resolution policies.
 
@@ -577,6 +659,16 @@ def apply_policy_constraints_to_aggregation(
     table_mapping = _get_source_table_to_alias_mapping(parsed, source_tables)
 
     for policy in policies:
+        # FK-shaped policies (relational integrity invariants):
+        # 1) Skip emission entirely if the query's existing JOIN/WHERE already
+        #    enforces the FK — adding it again is redundant noise.
+        # 2) When emission IS needed for an FK-shaped REMOVE policy, the WHERE
+        #    clause is the right place — HAVING is illegal in SQLite when the
+        #    query has aggregates without a GROUP BY, which is common for BIRD.
+        fk_pairs = _extract_fk_pairs_from_policy(policy) if isinstance(policy, DFCPolicy) else []
+        if fk_pairs and _query_satisfies_fk_pairs(parsed, fk_pairs):
+            continue
+
         # Check if policy requires sources but sources are not present
         policy_sources = policy._sources_lower
         if policy_sources and not policy_sources.issubset(source_tables):
@@ -630,8 +722,12 @@ def apply_policy_constraints_to_aggregation(
                 replace_existing=replace_existing_invalid_string,
             )
         else:
-            # REMOVE resolution - add HAVING clause
-            _add_clause_to_select(parsed, "having", constraint_expr, exp.Having)
+            # REMOVE resolution. FK-shaped → WHERE (HAVING is illegal without
+            # GROUP BY); aggregate-shaped policies stay on HAVING (their natural home).
+            if fk_pairs:
+                _add_clause_to_select(parsed, "where", constraint_expr, exp.Where)
+            else:
+                _add_clause_to_select(parsed, "having", constraint_expr, exp.Having)
 
 
 def ensure_columns_accessible(
@@ -1689,6 +1785,12 @@ def apply_policy_constraints_to_scan(
     table_mapping = _get_source_table_to_alias_mapping(parsed, source_tables)
 
     for policy in policies:
+        # FK-shaped policy: skip if the query's existing column-equalities
+        # already enforce the FK. Avoids redundant WHERE noise.
+        fk_pairs = _extract_fk_pairs_from_policy(policy) if isinstance(policy, DFCPolicy) else []
+        if fk_pairs and _query_satisfies_fk_pairs(parsed, fk_pairs):
+            continue
+
         # Check if policy requires sources but sources are not present
         policy_sources = policy._sources_lower
         if policy_sources and not policy_sources.issubset(source_tables):
